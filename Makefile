@@ -5,6 +5,7 @@ CASE_ID     := SRR23538290
 CUTSEQ      := ./cutseq/bin/cutseq
 HISAT       := ./hisat-3n/hisat-3n
 HISAT_BUILD := ./hisat-3n/hisat-3n-build
+HISAT_TABLE := ./hisat-3n/hisat-3n-table
 UMICOLLAPSE := java -server -Xms8G -Xmx40G -Xss100M -Djava.io.tmpdir=/mnt/treasure/zhangyang/asc-rna/tmp -jar ./umicollapse.jar
 SAMTOOLS    := ./samtools/samtools
 
@@ -58,5 +59,25 @@ ${MRNA_BAM_TARGET}: ${OUTPUT_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa ${
 	${HISAT} --index ${OUTPUT_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 16 --summary-file ${OUTPUT_DIR}/${CASE_ID}_map2genome.output.summary --new-summary -q -U ${OUTPUT_DIR}/${CASE_ID}.mRNA.fastq --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | ${SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM -U ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.unmapped.bam -o ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.bam
 	# 可以适当改大 hisat 的并行数
 
-${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.bam:
-	${SAMTOOLS} sort -@ 16 --write-index -O BAM -o /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.bam /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.bam
+${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.bam: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.bam
+	${SAMTOOLS} sort -@ 16 --write-index -O BAM -o $@ $^
+
+${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.bam.tsv: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.bam
+	${SAMTOOLS} view -@ 20 -F 3980 -c $^ > $@
+
+${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.bam
+	${UMICOLLAPSE} bam -t 2 -T 16 --data naive --merge avgqual --two-pass -i $^ -o $@ > ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.log
+	# 悲，这个 java 他特别慢
+
+${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam.bai: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam
+	${SAMTOOLS} index -@ 8 $^ $@
+
+${OUTPUT_DIR}/${CASE_ID}_unfiltered_uniq.tsv.gz: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam
+	${SAMTOOLS} view -e "rlen<100000" -h ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam | ${HISAT_TABLE} -p 16 -u --alignments - --ref ${OUTPUT_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T | cut -f 1,2,3,5,7 | gzip -c > ${OUTPUT_DIR}/${CASE_ID}_unfiltered_uniq.tsv.gz
+
+${OUTPUT_DIR}/${CASE_ID}_unfiltered_multi.tsv.gz: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam
+	${SAMTOOLS} view -e "rlen<100000" -h ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam | ${HISAT_TABLE} -p 16 -m --alignments - --ref ${OUTPUT_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T | cut -f 1,2,3,5,7 | gzip -c > ${OUTPUT_DIR}/${CASE_ID}_unfiltered_multi.tsv.gz
+	# hisat-table 部分很慢，每个 thread cpu 占用率不高
+
+${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam
+	${SAMTOOLS} view -@ 8 -e "[XM] * 20 <= (qlen-sclen) && [Zf] <= 3 && 3 * [Zf] <= [Zf] + [Yf]" $^ -O BAM -o $@
