@@ -48,7 +48,7 @@ fasterq-dump --fasta <ID>
 
 输入文件：ascii 字符串，都是 ACGTU 状物，fastq 格式 120+G，这题共有 3 个。
 
-小样例：SRR000001，但不知道是否能得到预期的结果。
+小样例：SRR23538290，文件约 20G，是题目 workflow example 里面的例子，应该保证能跑通流程。
 
 ## 各步骤
 
@@ -67,8 +67,6 @@ samtools-1.21/samtools faidx /asc25/ncrna_ref/Homo_sapiens.GRCh38.ncrna.fa
 ```
 
 根据参考基因和非编码rna建立索引，这一步应该和数据集没什么关系。
-
-TODO: 找到这里面需要的 GRCh38 dna he ncrna 文件。
 
 + Stage 1
 

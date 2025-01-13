@@ -6,3 +6,4 @@ samtools/
 hisat-3n/
 cutseq/
 umicollapse.jar
+*.swp
