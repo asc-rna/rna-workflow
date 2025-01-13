@@ -35,6 +35,8 @@ make
 # make install
 ```
 
++ umicollapse: <https://raw.githubusercontent.com/Daniel-Liu-c0deb0t/UMICollapse/refs/heads/master/umicollapse.jar>
+
 ## 下载
 
 + 下载输入文件
