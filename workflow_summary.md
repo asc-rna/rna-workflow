@@ -13,9 +13,11 @@ P14-P17 供参考的软件使用的脚本代码
 
 TODO2:下载一下工具，跑一下，用自己的话讲一个每个阶段在做什么，输入输出是啥，记录脚本 -->
 
+克隆仓库后，参考下面内容安装除了 sra-tools 以外的依赖软件，输入数据和产生的中间文件放在 /mnt/treasure/ 里，参考 Makefile 运行。
+
 ## 依赖软件
 
-+ 下载 sra tools: <https://ftp-trace.ncbi.nlm.nih.gov/sra/sdk/3.1.1/sratoolkit.3.1.1-ubuntu64.tar.gz>
++ sra-tools（只用于下载数据）: <https://ftp-trace.ncbi.nlm.nih.gov/sra/sdk/3.1.1/sratoolkit.3.1.1-ubuntu64.tar.gz>
 
 + hisat3n: <http://daehwankimlab.github.io/hisat2/hisat-3n/>
 ```
@@ -27,12 +29,19 @@ make
 
 + samtools: <https://github.com/samtools/samtools>
 ```
+git clone https://github.com/samtools/samtools
+cd samtools
 autoheader            # Build config.h.in (this may generate a warning about
                       # AC_CONFIG_SUBDIRS - please ignore it).
 autoconf -Wno-syntax  # Generate the configure script
 ./configure           # Needed for choosing optional functionality
 make
 # make install
+```
+
++ m5C-UBSseq
+```
+git clone https://github.com/y9c/m5C-UBSseq
 ```
 
 + umicollapse: <https://raw.githubusercontent.com/Daniel-Liu-c0deb0t/UMICollapse/refs/heads/master/umicollapse.jar>
