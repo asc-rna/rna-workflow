@@ -44,7 +44,26 @@ make
 git clone https://github.com/y9c/m5C-UBSseq
 ```
 
++ cutseq
+
+```
+python3 -m venv cutseq
+cd cutseq
+source ./bin/activate.sh
+pip3 install cutseq
+```
+
 + umicollapse: <https://raw.githubusercontent.com/Daniel-Liu-c0deb0t/UMICollapse/refs/heads/master/umicollapse.jar>
+
+dependency:
+
+```
+mkdir lib
+cd lib
+curl -O -L https://repo1.maven.org/maven2/com/github/samtools/htsjdk/2.19.0/htsjdk-2.19.0.jar
+curl -O -L https://repo1.maven.org/maven2/org/xerial/snappy/snappy-java/1.1.7.3/snappy-java-1.1.7.3.jar
+cd ..
+```
 
 ## 下载
 
