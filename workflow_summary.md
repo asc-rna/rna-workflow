@@ -39,6 +39,14 @@ make
 
 ## 下载
 
++ 下载 GRCh38
+
+目前在网上找到的较新版本：
+
+dna: <http://ftp.ensembl.org/pub/release-113/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz>
+
+ncrna: <http://ftp.ensembl.org/pub/release-113/fasta/homo_sapiens/ncrna/Homo_sapiens.GRCh38.ncrna.fa.gz>
+
 + 下载输入文件
 
 ```
