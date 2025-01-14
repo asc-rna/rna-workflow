@@ -89,3 +89,17 @@ ${OUTPUT_DIR}/${CASE_ID}_filtered_multi.tsv.gz: ${OUTPUT_DIR}/${CASE_ID}.mRNA.ge
 
 ${OUTPUT_DIR}/${CASE_ID}_genome.arrow: ${OUTPUT_DIR}/${CASE_ID}_unfiltered_uniq.tsv.gz ${OUTPUT_DIR}/${CASE_ID}_unfiltered_multi.tsv.gz ${OUTPUT_DIR}/${CASE_ID}_filtered_uniq.tsv.gz ${OUTPUT_DIR}/${CASE_ID}_filtered_multi.tsv.gz
 	./m5C-UBSseq/bin/python m5C-UBSseq/bin/join_pileup.py -i $^ -o $@
+
+# Stage 2:
+
+${OUTPUT_DIR}/WT.arrow: ${OUTPUT_DIR}/SRR23538312_genome.arrow ${OUTPUT_DIR}/SRR23538313_genome.arrow ${OUTPUT_DIR}/SRR23538314_genome.arrow
+	./m5C-UBSseq/bin/python m5C-UBSseq/bin/group_pileup.py -i $^ -o $@
+
+${OUTPUT_DIR}/WT.prefilter.tsv: ${OUTPUT_DIR}/WT.arrow
+	./m5C-UBSseq/bin/python m5C-UBSseq/bin/select_sites.py -i $^ -o $@
+
+${OUTPUT_DIR}/%.res_phony: ${OUTPUT_DIR}/%_genome.arrow ${OUTPUT_DIR}/WT.prefilter.tsv
+	./m5C-UBSseq/bin/python ./m5C-UBSseq/bin/filter_sites.py -i $< -m ${OUTPUT_DIR}/WT.prefilter.tsv -b $(basename $@).bg.tsv -o $(basename $@).filtered.tsv
+	touch $@ # touch phony target
+
+all: ${OUTPUT_DIR}/SRR23538312.res_phony ${OUTPUT_DIR}/SRR23538313.res_phony ${OUTPUT_DIR}/SRR23538314.res_phony
