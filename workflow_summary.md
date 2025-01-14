@@ -27,10 +27,8 @@ git checkout -b hisat-3n origin/hisat-3n
 make
 ```
 
-+ samtools: <https://github.com/samtools/samtools>
++ samtools: <https://github.com/samtools/samtools/releases/download/1.21/samtools-1.21.tar.bz2>
 ```
-git clone https://github.com/samtools/samtools
-cd samtools
 autoheader            # Build config.h.in (this may generate a warning about
                       # AC_CONFIG_SUBDIRS - please ignore it).
 autoconf -Wno-syntax  # Generate the configure script

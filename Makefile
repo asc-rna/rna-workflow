@@ -1,13 +1,13 @@
-OUTPUT_DIR  := /mnt/treasure/zhangyang/asc-rna/output
-INPUT_DIR   := /mnt/treasure/zhangyang/asc-rna/input
-CASE_ID     := SRR23538290
+OUTPUT_DIR  ?= /mnt/treasure/zhangyang/asc-rna/output
+INPUT_DIR   ?= /mnt/treasure/zhangyang/asc-rna/input
+CASE_ID     ?= SRR23538314
 
-CUTSEQ      := ./cutseq/bin/cutseq
-HISAT       := ./hisat-3n/hisat-3n
-HISAT_BUILD := ./hisat-3n/hisat-3n-build
-HISAT_TABLE := ./hisat-3n/hisat-3n-table
-UMICOLLAPSE := java -server -Xms8G -Xmx40G -Xss100M -Djava.io.tmpdir=/mnt/treasure/zhangyang/asc-rna/tmp -jar ./umicollapse.jar
-SAMTOOLS    := ./samtools/samtools
+CUTSEQ      ?= ./cutseq/bin/cutseq
+HISAT       ?= ./hisat-3n/hisat-3n
+HISAT_BUILD ?= ./hisat-3n/hisat-3n-build
+HISAT_TABLE ?= ./hisat-3n/hisat-3n-table
+UMICOLLAPSE ?= java -server -Xms8G -Xmx40G -Xss100M -Djava.io.tmpdir=/mnt/treasure/zhangyang/asc-rna/tmp -jar ./umicollapse.jar
+SAMTOOLS    ?= ./samtools/samtools
 
 
 # Stage 0: prepare index，这一部分不计时
@@ -37,7 +37,7 @@ ${OUTPUT_DIR}/Homo_sapiens.GRCh38.ncrna.fa.fai: ${OUTPUT_DIR}/Homo_sapiens.GRCh3
 # extract fastq
 
 ${OUTPUT_DIR}/${CASE_ID}.fastq: ${INPUT_DIR}/${CASE_ID}/${CASE_ID}.sra # 这一步也不计时
-	./sra-tools/bin/fasterq-dump $^ -o $@ 
+	./sra-tools/bin/fasterq-dump $^ --concatenate-reads -o $@ 
 
 
 # FIXME Makefile 没法处理多个目标共用一条生成命令，-j2 的时候会对两个目标同时跑两遍，需要引入一个 dummy output 解决
@@ -67,7 +67,6 @@ ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.bam.tsv: ${OUTPUT_DIR}/${CASE
 
 ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.bam
 	${UMICOLLAPSE} bam -t 2 -T 16 --data naive --merge avgqual --two-pass -i $^ -o $@ > ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.log
-	# 悲，这个 java 他特别慢
 
 ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam.bai: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam
 	${SAMTOOLS} index -@ 8 $^ $@
@@ -77,7 +76,16 @@ ${OUTPUT_DIR}/${CASE_ID}_unfiltered_uniq.tsv.gz: ${OUTPUT_DIR}/${CASE_ID}.mRNA.g
 
 ${OUTPUT_DIR}/${CASE_ID}_unfiltered_multi.tsv.gz: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam
 	${SAMTOOLS} view -e "rlen<100000" -h ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam | ${HISAT_TABLE} -p 16 -m --alignments - --ref ${OUTPUT_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T | cut -f 1,2,3,5,7 | gzip -c > ${OUTPUT_DIR}/${CASE_ID}_unfiltered_multi.tsv.gz
-	# hisat-table 部分很慢，每个 thread cpu 占用率不高
+	# hisat-table 部分很慢，每个 thread cpu 占用率不高，代码不长，可能要重写
 
 ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam
 	${SAMTOOLS} view -@ 8 -e "[XM] * 20 <= (qlen-sclen) && [Zf] <= 3 && 3 * [Zf] <= [Zf] + [Yf]" $^ -O BAM -o $@
+
+${OUTPUT_DIR}/${CASE_ID}_filtered_uniq.tsv.gz: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam
+	${SAMTOOLS} view -e "rlen<100000" -h ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam | ${HISAT_TABLE} -p 16 -u --alignments - --ref ${OUTPUT_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T | cut -f 1,2,3,5,7 | gzip -c > ${OUTPUT_DIR}/${CASE_ID}_filtered_uniq.tsv.gz
+
+${OUTPUT_DIR}/${CASE_ID}_filtered_multi.tsv.gz: ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam
+	${SAMTOOLS} view -e "rlen<100000" -h ${OUTPUT_DIR}/${CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam | ${HISAT_TABLE} -p 16 -m --alignments - --ref ${OUTPUT_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T | cut -f 1,2,3,5,7 | gzip -c > ${OUTPUT_DIR}/${CASE_ID}_filtered_multi.tsv.gz
+
+${OUTPUT_DIR}/${CASE_ID}_genome.arrow: ${OUTPUT_DIR}/${CASE_ID}_unfiltered_uniq.tsv.gz ${OUTPUT_DIR}/${CASE_ID}_unfiltered_multi.tsv.gz ${OUTPUT_DIR}/${CASE_ID}_filtered_uniq.tsv.gz ${OUTPUT_DIR}/${CASE_ID}_filtered_multi.tsv.gz
+	./m5C-UBSseq/bin/python m5C-UBSseq/bin/join_pileup.py -i $^ -o $@
