@@ -84,69 +84,11 @@ fasterq-dump --fasta <ID>
 
 小样例：SRR23538290，文件约 20G，是题目 workflow example 里面的例子，应该保证能跑通流程。
 
-## 各步骤
+## 复现步骤
 
-根据题目末尾的 Workflow Example
+Homo\_sapien 开头的数据一般不用动，如果要改可以通过 make 两个 index\_phony 生成。
 
-TODO: 替换里面的文件名，写成脚本/Makefile跑起来。
+单个 case 的 make 写在了单独的 Makefile\_case 里，通过外面指定 CASE\_ID 来决定处理哪个 case，应该也只需要优化这一部分。
 
-+ Stage 0
+直接在这个目录 make all 就可以得到所有答案，make -j3 可以让三个 CASE 并行。
 
-```
-hisat-3n/hisat-3n-build -p 32 --base-change C,T /asc25/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa /asc25/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa
-samtools-1.21/samtools faidx /asc25/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa 
-awk 'BEGIN{{OFS="\\t"}}{{print $1,$1,0,$2,"+"}}' /asc25/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa.fai >Homo_sapiens.GRCh38.dna.primary_assembly.fa.saf
-hisat-3n/hisat-3n-build -p 16 --base-change C,T /asc25/ncrna_ref/Homo_sapiens.GRCh38.ncrna.fa /asc25/ncrna_ref/Homo_sapiens.GRCh38.ncrna.fa
-samtools-1.21/samtools faidx /asc25/ncrna_ref/Homo_sapiens.GRCh38.ncrna.fa
-```
-
-根据参考基因和非编码rna建立索引，这一步应该和数据集没什么关系。
-
-+ Stage 1
-
-```
-cutseq /asc25/SRR23538290/SRR23538290.fastq -t 20 -A INLINE -m 20 --trim-polyA --ensure-inline -barcode -o /asc25/SRR23538290/SRR23538290.fastq_cut -s /asc25/SRR23538290/SRR23538290.fastq_tooshort -u /asc25/SRR23538290/SRR23538290.fastq_untrimmed
-
-hisat-3n/hisat-3n --index /asc25/ncrna_ref/Homo_sapiens.GRCh38.ncrna.fa --summary-file /asc25/SRR23538290/map2ncrna.output.summary --new-summary -q -U /asc25/SRR23538290/SRR23538290.fastq_cut -p 16 --base-change C,T --mp 8,2 --no-spliced-alignment --directional -mapping | /asc25/samtools-1.21/samtools view -@ 16 -e '!flag.unmap' -O BAM -U /asc25/SRR23538290/SRR23538290.ncrna.unmapped.bam -o /asc25/SRR23538290/SRR23538290.ncrna.mapped.bam
-
-samtools-1.21/samtools fastq -@ 16 -O /asc25/SRR23538290/SRR23538290.ncrna.unmapped.bam >/asc25/SRR23538290/SRR23538290.mRNA.fastq
-
-hisat-3n/hisat-3n --index /asc25/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 16 --summary-file /asc25/SRR23538290/map2genome.output.summary --new-summary -q -U /asc25/SRR23538290/SRR23538290.mRNA.fastq --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | samtools-1.21/samtools view -@ 16 -e '!flag.unmap' -O BAM -U /asc25/SRR23538290/SRR23538290.mRNA.genome.unmapped.bam -o /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.bam
-
-samtools-1.21/samtools sort -@ 16 --write-index -O BAM -o /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.bam /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.bam
-
-samtools-1.21/samtools view -@ 20 -F 3980 -c /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.bam >/asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.bam.tsv
-
-java -server -Xms8G -Xmx40G -Xss100M -Djava.io.tmpdir=/asc25/SRR23538290 -jar /asc25/UMICollapse-1.0.0/umicollapse.jar bam -t 2 -T 16 --data naive --merge avgqual --two-pass -i /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.bam -o /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.bam > /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.log
-
-samtools-1.21/samtools index -@ 8 /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.bam /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.bam.bai
-
-samtools-1.21/samtools view -e "rlen<100000" -h /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.bam | hisat-3n/hisat-3n-table -p 16 -u --alignments - --ref /asc25/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T | cut -f 1,2,3,5,7 | gzip -c > /asc25/SRR23538290/SRR23538290_unfiltered_uniq.tsv.gz
-
-samtools-1.21/samtools view -e "rlen<100000" -h /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.bam | hisat-3n/hisat-3n-table -p 16 -m --alignments - --ref /asc25/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T | cut - f 1,2,3,5,7 | gzip -c > /asc25/SRR23538290/SRR23538290_unfiltered_multi.tsv.gz
-
-samtools-1.21/samtools view -@ 8 -e "[XM] * 20 <= (qlen-sclen) && [Zf] <= 3 && 3 * [Zf] <= [Zf] + [Yf]" /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.bam -O BAM -o /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.filtered.bam
-
-samtools-1.21/samtools view -e "rlen<100000" -h /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.filtered.bam | /asc25/hisat-3n/hisat-3n-table -p 16 -u --alignments - --ref /mnt/nvme2n1/asc25/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T | cut -f 1,2,3,5,7 | gzip -c > /asc25/SRR23538290/SRR23538290_filtered_uniq.tsv.gz
-
-samtools-1.21/samtools view -e "rlen<100000" -h /asc25/SRR23538290/SRR23538290.mRNA.genome.mapped.sorted.dedup.filtered.bam | hisat-3n/hisat-3n-table -p 16 -m --alignments - --ref /asc25/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T | cut -f 1,2,3,5,7 | gzip -c > /asc25/SRR23538290/SRR23538290_filtered_multi.tsv.gz
-
-python m5C-UBSseq-main/bin/join_pileup.py -i /asc25/SRR23538290/SRR23538290_unfiltered_uniq.tsv.gz /asc25/SRR23538290/SRR23538290_unfiltered_multi.tsv.gz /asc25/SRR23538290/SRR23538290_filtered_uniq.tsv.gz /asc25/SRR23538290/SRR23538290_filtered_multi.tsv.gz -o /asc25/SRR23538290/SRR23538290_genome.arrow
-```
-
-对每个数据分别运行
-
-+ Stage 2
-
-```
-python /asc25/m5C-UBSseq-main/bin/group_pileup.py -i ./SRR23538290/SRR23538290_genome.arrow ./SRR23538291/SRR23538291_genome.arrow ./SRR23538292/SRR23538292_genome.arrow -o WT.arrow
-python m5C-UBSseq-main/bin/select_sites.py -i ./WT.arrow -o ./WT.prefilter.tsv 
-python ./m5C-UBSseq-main/bin/filter_sites.py -i ./SRR23538290/SRR23538290_genome.arrow -m ./WT.prefilter.tsv -b ./SRR23538290/SRR23538290.bg.tsv -o ./SRR23538290/SRR23538290.filtere
-d.tsv
-python ./m5C-UBSseq-main/bin/filter_sites.py -i ./SRR23538291/SRR23538291_genome.arrow -m ./WT.prefilter.tsv -b ./SRR23538291/SRR23538291.bg.tsv -o ./SRR23538291/SRR23538291.filtere
-d.tsv
-python ./m5C-UBSseq-main/bin/filter_sites.py -i ./SRR23538292/SRR23538292_genome.arrow -m ./WT.prefilter.tsv -b ./SRR23538292/SRR23538292.bg.tsv -o ./SRR23538292/SRR23538292.filtere
-d.tsv
-```
-
-得到最终结果。
