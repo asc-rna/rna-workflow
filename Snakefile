@@ -2,17 +2,18 @@
 import os
 
 # 配置路径
-OUTPUT_DIR = "/mnt/treasure/scy24/output"
-INPUT_DIR = "/mnt/treasure/asc25/rna/input"
-REF_DIR = "/home/scy24/asc-rna/ref"
+OUTPUT_DIR = config['output_dir']
+TEMP_DIR = config.get('temp_dir') or "/tmp"
+CASE_ID = config.get('case_id') or "SRR23538290"
+
+INPUT_DIR = "/mnt/ramdisk/rna/input"
+REF_DIR = INPUT_DIR
+FASTQ_DIR = "/mnt/treasure/asc25/rna/fastq"
 
 CUTSEQ = "cutseq"
 HISAT = "./hisat-3n/hisat-3n"
 HISAT_TABLE = "./hisat-3n/hisat-3n-table"
-UMICOLLAPSE = "java -server -Xms8G -Xmx40G -Xss100M -Djava.io.tmpdir=/mnt/treasure/scy24/tmp -jar ./umicollapse.jar"
-SAMTOOLS = "./samtools/bin/samtools"
-
-CASE_ID = config['case_id']
+SAMTOOLS = "./samtools/samtools"
 
 
 # 最终目标
@@ -20,19 +21,10 @@ rule all:
     input:
         f"{OUTPUT_DIR}/{CASE_ID}_genome.arrow"
 
-# 1. SRA 转 FASTQ
-rule sra_to_fastq:
-    input:
-        sra_file = f"{INPUT_DIR}/{CASE_ID}/{CASE_ID}.sra"
-    output:
-        fastq = f"{OUTPUT_DIR}/{CASE_ID}.fastq"
-    shell:
-        "./sra-tools/bin/fasterq-dump {input.sra_file} --concatenate-reads -o {output.fastq}"
-
 # 2. 修剪 FASTQ
 rule cut_fastq:
     input:
-        fastq = f"{OUTPUT_DIR}/{CASE_ID}.fastq"
+        fastq = f"{FASTQ_DIR}/{CASE_ID}.fastq"
     output:
         cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut",
         tooshort = f"{OUTPUT_DIR}/{CASE_ID}.fastq_tooshort",
@@ -40,7 +32,7 @@ rule cut_fastq:
     shell:
         """
         {CUTSEQ} {input.fastq} -t 20 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
-        -o {output.cut} -s {output.tooshort} -u {output.untrimmed}
+        -o {output.cut}
         """
 
 # 3. 比对到 ncRNA
@@ -102,8 +94,15 @@ rule umi_dedup:
         log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
     shell:
         """
-        {UMICOLLAPSE} bam -t 2 -T 16 --data naive --merge avgqual --two-pass \
-        -i {input.sorted_bam} -o {output.dedup_bam} > {output.log}
+        taskset -c 0-31,64-95 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
+            -XX:+UseZGC \
+            -Dthread.pool.size=16 \
+            -Dsamjdk.sort_col_threads=2 \
+            -Dsamjdk.use_async_io_read_samtools=true \
+            -Dsamjdk.compression_level=0 \
+            -jar ./Umicollapse/umicollapse.jar \
+            bam --data naive --merge avgqual --algo dir --two-pass \
+            -i {input.sorted_bam} -o {output.dedup_bam} > {output.log}
         """
 
 # # 8. 转换为表格
