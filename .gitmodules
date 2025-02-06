@@ -1,0 +1,3 @@
+[submodule "hisat-3n"]
+	path = hisat-3n
+	url = git@github.com:asc-rna/hisat-3n.git

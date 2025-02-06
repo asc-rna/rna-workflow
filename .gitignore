@@ -3,6 +3,5 @@ data/
 output/
 sra-tools/
 samtools/
-hisat-3n/
 cutseq/
 *.swp
