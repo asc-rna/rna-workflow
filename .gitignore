@@ -1,6 +1,5 @@
 data/
 output/
 sra-tools/
-samtools/
 cutseq/
 *.swp
