@@ -83,7 +83,7 @@ rule sort_bam:
     output:
         sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
     shell:
-        "{SAMTOOLS} sort -@ 16 --write-index -O BAM -o {output.sorted_bam} {input.mapped_bam}"
+        "{SAMTOOLS} sort -@ 16 --write-index -O BAM,level=0 -o {output.sorted_bam} {input.mapped_bam}"
 
 # 7. UMI 去重
 rule umi_dedup:
@@ -94,7 +94,7 @@ rule umi_dedup:
         log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
     shell:
         """
-        taskset -c 0-31,64-95 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
+        taskset -c 0-63 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
             -XX:+UseZGC \
             -Dthread.pool.size=16 \
             -Dsamjdk.sort_col_threads=2 \
@@ -131,7 +131,6 @@ rule unfiltered_uniq:
         {HISAT_TABLE} -p 16 -u --alignments - \
             --ref {input.ref_fa} \
             --output-name /dev/stdout --base-change C,T |
-        cut -f 1,2,3,5,7 |
         gzip -c > {output.unfiltered_uniq}
         """
 
@@ -148,7 +147,6 @@ rule unfiltered_multi:
         {HISAT_TABLE} -p 16 -m --alignments - \
             --ref {input.ref_fa} \
             --output-name /dev/stdout --base-change C,T |
-        cut -f 1,2,3,5,7 |
         gzip -c > {output.unfiltered_multi}
         """
 
@@ -182,7 +180,6 @@ rule filtered_uniq:
         {HISAT_TABLE} -p 16 -u --alignments - \
             --ref {input.ref_fa} \
             --output-name /dev/stdout --base-change C,T |
-        cut -f 1,2,3,5,7 |
         gzip -c > {output.filtered_uniq}
         """
 
@@ -199,7 +196,6 @@ rule filtered_multi:
         {HISAT_TABLE} -p 16 -m --alignments - \
             --ref {input.ref_fa} \
             --output-name /dev/stdout --base-change C,T |
-        cut -f 1,2,3,5,7 |
         gzip -c > {output.filtered_multi}
         """
 
