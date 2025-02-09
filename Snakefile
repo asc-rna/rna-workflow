@@ -27,12 +27,10 @@ rule cut_fastq:
         fastq = f"{FASTQ_DIR}/{CASE_ID}.fastq"
     output:
         cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut",
-        tooshort = f"{OUTPUT_DIR}/{CASE_ID}.fastq_tooshort",
-        untrimmed = f"{OUTPUT_DIR}/{CASE_ID}.fastq_untrimmed"
     shell:
         """
         {CUTSEQ} {input.fastq} -t 20 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
-        -o {output.cut}
+        -o {output.cut} -O "{OUTPUT_DIR}/{CASE_ID}.fastq"
         """
 
 # 3. 比对到 ncRNA
