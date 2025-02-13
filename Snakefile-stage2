@@ -1,0 +1,49 @@
+OUTPUT_DIR = "/data/output"
+FINAL_DIR = OUTPUT_DIR
+# 最终目标
+rule all:
+    input:
+        expand(f"{FINAL_DIR}/{{sample}}.filtered.tsv", sample=["SRR23538290", "SRR23538291", "SRR23538292"])
+
+# 规则 1: 合并多个 genome.arrow 文件生成 WT.arrow
+rule group_pileup:
+    input:
+        genome_arrows = [
+            f"{OUTPUT_DIR}/SRR23538290_genome.arrow",
+            f"{OUTPUT_DIR}/SRR23538291_genome.arrow",
+            f"{OUTPUT_DIR}/SRR23538292_genome.arrow"
+        ]
+    output:
+        wt_arrow = f"{OUTPUT_DIR}/WT.arrow"
+    shell:
+        """
+        python m5C-UBSseq/bin/group_pileup.py -i {input.genome_arrows} -o {output.wt_arrow}
+        """
+
+# 规则 2: 根据 WT.arrow 文件生成 prefilter TSV
+rule select_sites:
+    input:
+        wt_arrow = f"{OUTPUT_DIR}/WT.arrow"
+    output:
+        prefilter_tsv = f"{OUTPUT_DIR}/WT.prefilter.tsv"
+    shell:
+        """
+        python m5C-UBSseq/bin/select_sites.py -i {input.wt_arrow} -o {output.prefilter_tsv}
+        """
+
+# 规则 3: 根据单个 genome.arrow 和 prefilter TSV 生成结果文件
+rule filter_sites:
+    input:
+        genome_arrow = f"{OUTPUT_DIR}/{{sample}}_genome.arrow",
+        prefilter_tsv = f"{OUTPUT_DIR}/WT.prefilter.tsv"
+    output:
+        bg_tsv = f"{OUTPUT_DIR}/{{sample}}.bg.tsv",
+        filtered_tsv = f"{FINAL_DIR}/{{sample}}.filtered.tsv"
+    shell:
+        """
+        python ./m5C-UBSseq/bin/filter_sites.py \
+            -i {input.genome_arrow} \
+            -m {input.prefilter_tsv} \
+            -b {output.bg_tsv} \
+            -o {output.filtered_tsv}
+        """
