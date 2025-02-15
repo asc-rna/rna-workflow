@@ -40,10 +40,13 @@ RUN apt-get install -y openjdk-17-jre-headless
 RUN apt-get install -y python3
 RUN apt-get install -y python3-pip
 RUN apt-get install -y python3-venv
+RUN apt-get install -y numactl
 
 WORKDIR /app
 COPY --from=builder /app /app
+ENV PATH="venv/bin:$PATH"
 RUN mkdir /data
+
 # Set the default command
 CMD ["bash"]
 

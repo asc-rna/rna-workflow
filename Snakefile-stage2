@@ -1,4 +1,4 @@
-OUTPUT_DIR = "/data/output"
+OUTPUT_DIR = "/data/result"
 FINAL_DIR = OUTPUT_DIR
 # 最终目标
 rule all:
