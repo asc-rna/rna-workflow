@@ -2,13 +2,15 @@
 import os
 
 # 配置路径
-OUTPUT_DIR = config['output_dir']
+OUTPUT_DIR = "/data/output"
 TEMP_DIR = config.get('temp_dir') or "/tmp"
 CASE_ID = config.get('case_id') or "SRR23538290"
 
-INPUT_DIR = "/mnt/ramdisk/rna/input"
+INPUT_DIR = "/data/input"
 REF_DIR = INPUT_DIR
-FASTQ_DIR = "/mnt/treasure/asc25/rna/fastq"
+FASTQ_DIR = INPUT_DIR
+
+RESULT_DIR = "/data/result"
 
 CUTSEQ = "cutseq"
 HISAT = "./hisat-3n/hisat-3n"
@@ -19,7 +21,7 @@ SAMTOOLS = "./samtools/samtools"
 # 最终目标
 rule all:
     input:
-        f"{OUTPUT_DIR}/{CASE_ID}_genome.arrow"
+        f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
 
 # 2. 修剪 FASTQ
 rule cut_fastq:
@@ -44,9 +46,11 @@ rule align_to_ncrna:
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.summary"
     shell:
         """
+        numactl --cpunodebind=0 --membind=0 --physcpubind=0-15 \
         {HISAT} --index {input.ref_fa_ncrna} --summary-file {output.summary} \
         --new-summary -q -U {input.fastq_cut} -p 16 --base-change C,T --mp 8,2 --no-spliced-alignment \
-        --directional-mapping | {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM \
+        --directional-mapping | numactl --cpunodebind=1 --membind=1 --physcpubind=32-47 \
+        {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM \
         -U {output.unmapped_bam} -o {output.mapped_bam}
         """
 
@@ -69,8 +73,10 @@ rule align_to_genome:
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.summary"
     shell:
         """
-        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 16 --summary-file {output.summary} \
+        numactl --cpunodebind=0 --membind=0 --physcpubind=0-31 \
+        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 32 --summary-file {output.summary} \
         --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
+        numactl --cpunodebind=1 --membind=1 --physcpubind=32-47 \
         {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM -U {output.unmapped_bam} -o {output.mapped_bam}
         """
 
@@ -103,19 +109,6 @@ rule umi_dedup:
             -i {input.sorted_bam} -o {output.dedup_bam} > {output.log}
         """
 
-# # 8. 转换为表格
-# rule bam_to_tsv:
-#     input:
-#         dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam"
-#     output:
-#         tsv = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv.gz"
-#     shell:
-#         """
-#         {SAMTOOLS} view -e "rlen<100000" -h {input.dedup_bam} | \
-#         {HISAT_TABLE} -p 16 -u --alignments - --ref {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
-#         --output-name /dev/stdout --base-change C,T | cut -f 1,2,3,5,7 | gzip -c > {output.tsv}
-#         """
-
 # 8.1：生成 unfiltered_uniq.tsv.gz ==========
 rule unfiltered_uniq:
     input:
@@ -125,8 +118,8 @@ rule unfiltered_uniq:
         unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv.gz"
     shell:
         """
-        {SAMTOOLS} view -e "rlen<100000" -h {input.dedup_bam} |
-        {HISAT_TABLE} -p 16 -u --alignments - \
+        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
+        {HISAT_TABLE} -p 10 -u --alignments - \
             --ref {input.ref_fa} \
             --output-name /dev/stdout --base-change C,T |
         gzip -c > {output.unfiltered_uniq}
@@ -141,8 +134,8 @@ rule unfiltered_multi:
         unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv.gz"
     shell:
         """
-        {SAMTOOLS} view -e "rlen<100000" -h {input.dedup_bam} |
-        {HISAT_TABLE} -p 16 -m --alignments - \
+        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
+        {HISAT_TABLE} -p 10 -m --alignments - \
             --ref {input.ref_fa} \
             --output-name /dev/stdout --base-change C,T |
         gzip -c > {output.unfiltered_multi}
@@ -174,8 +167,8 @@ rule filtered_uniq:
         filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv.gz"
     shell:
         """
-        {SAMTOOLS} view -e "rlen<100000" -h {input.filtered_bam} |
-        {HISAT_TABLE} -p 16 -u --alignments - \
+        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
+        {HISAT_TABLE} -p 10 -u --alignments - \
             --ref {input.ref_fa} \
             --output-name /dev/stdout --base-change C,T |
         gzip -c > {output.filtered_uniq}
@@ -190,8 +183,8 @@ rule filtered_multi:
         filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv.gz"
     shell:
         """
-        {SAMTOOLS} view -e "rlen<100000" -h {input.filtered_bam} |
-        {HISAT_TABLE} -p 16 -m --alignments - \
+        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
+        {HISAT_TABLE} -p 10 -m --alignments - \
             --ref {input.ref_fa} \
             --output-name /dev/stdout --base-change C,T |
         gzip -c > {output.filtered_multi}
@@ -206,9 +199,9 @@ rule join_pileup:
         filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv.gz",
         filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv.gz"
     output:
-        arrow = f"{OUTPUT_DIR}/{CASE_ID}_genome.arrow"
+        arrow = f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
     shell:
         """
-        python m5C-UBSseq/bin/join_pileup.py -i {input.unfiltered_uniq} {input.unfiltered_multi} \
+        python3 m5C-UBSseq/bin/join_pileup.py -i {input.unfiltered_uniq} {input.unfiltered_multi} \
         {input.filtered_uniq} {input.filtered_multi} -o {output.arrow}
         """
