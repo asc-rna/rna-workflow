@@ -46,9 +46,9 @@ rule align_to_ncrna:
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.summary"
     shell:
         """
-        numactl --cpunodebind=0 --membind=0 --physcpubind=0-15 \
+        numactl --cpunodebind=0 --membind=0 --physcpubind=0-25 \
         {HISAT} --index {input.ref_fa_ncrna} --summary-file {output.summary} \
-        --new-summary -q -U {input.fastq_cut} -p 16 --base-change C,T --mp 8,2 --no-spliced-alignment \
+        --new-summary -q -U {input.fastq_cut} -p 26 --base-change C,T --mp 8,2 --no-spliced-alignment \
         --directional-mapping | numactl --cpunodebind=1 --membind=1 --physcpubind=32-47 \
         {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM \
         -U {output.unmapped_bam} -o {output.mapped_bam}
@@ -73,10 +73,10 @@ rule align_to_genome:
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.summary"
     shell:
         """
-        numactl --cpunodebind=0 --membind=0 --physcpubind=0-31 \
+        numactl --cpunodebind=0,1 --membind=0 --physcpubind=0-43 \
         {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 32 --summary-file {output.summary} \
         --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
-        numactl --cpunodebind=1 --membind=1 --physcpubind=32-47 \
+        numactl --cpunodebind=1 --membind=1 --physcpubind=44-62 \
         {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM -U {output.unmapped_bam} -o {output.mapped_bam}
         """
 
