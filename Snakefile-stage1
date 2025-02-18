@@ -41,8 +41,7 @@ rule align_to_ncrna:
         fastq_cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut",
         ref_fa_ncrna = f"{REF_DIR}/Homo_sapiens.GRCh38.ncrna.fa",
     output:
-        unmapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.bam",
-        mapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.ncrna.mapped.bam",
+        unmapped_bam = pipe(f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.bam"),
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.summary"
     shell:
         """
@@ -50,8 +49,7 @@ rule align_to_ncrna:
         {HISAT} --index {input.ref_fa_ncrna} --summary-file {output.summary} \
         --new-summary -q -U {input.fastq_cut} -p 26 --base-change C,T --mp 8,2 --no-spliced-alignment \
         --directional-mapping | numactl --cpunodebind=1 --membind=1 --physcpubind=32-47 \
-        {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM \
-        -U {output.unmapped_bam} -o {output.mapped_bam}
+        {SAMTOOLS} view -e 'flag.unmap' -u -o {output.unmapped_bam}
         """
 
 # 4. 从 BAM 转 FASTQ
@@ -61,15 +59,14 @@ rule bam_to_fastq:
     output:
         mRNA_fastq = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.fastq"
     shell:
-        "{SAMTOOLS} fastq -@ 16 -O {input.unmapped_bam} > {output.mRNA_fastq}"
+        numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 {SAMTOOLS} fastq -O {input.unmapped_bam} > {output.mRNA_fastq}
 
 # 5. 比对到基因组
 rule align_to_genome:
     input:
         fastq = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.fastq"
     output:
-        unmapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.unmapped.bam",
-        mapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.bam",
+        mapped_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.bam"),
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.summary"
     shell:
         """
@@ -77,7 +74,7 @@ rule align_to_genome:
         {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 44 --summary-file {output.summary} \
         --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
         numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 \
-        {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM -U {output.unmapped_bam} -o {output.mapped_bam}
+        {SAMTOOLS} view -e '!flag.unmap' -u -o {output.mapped_bam}
         """
 
 # 6. 排序 BAM

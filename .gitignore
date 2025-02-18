@@ -1,6 +1,2 @@
-data/
-output/
-sra-tools/
-cutseq/
 *.swp
-.snakemake
+*.log

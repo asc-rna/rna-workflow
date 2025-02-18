@@ -1,4 +1,5 @@
 # Use Debian Bookworm as the base image
+# TODO: comment
 FROM docker.s.thusaac.com:12711/library/debian:bookworm AS BUILDER
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -25,10 +26,13 @@ RUN apt-get install -y \
 # Set the working directory
 WORKDIR /app
 # Ensure the virtual environment is activated automatically
-ENV PATH="venv/bin:$PATH"
 
 # Copy files from the host into the container
-COPY . .
+COPY Umicollapse  /app/Umicollapse
+COPY hisat-3n  /app/hisat-3n
+COPY htslib /app/htslib
+COPY samtools /app/samtools
+COPY build.sh /app/build.sh
 RUN chmod +x build.sh && ./build.sh
 
 # Use Debian Bookworm as the base image
@@ -44,9 +48,15 @@ RUN apt-get install -y numactl
 
 WORKDIR /app
 COPY --from=builder /app /app
-ENV PATH="venv/bin:$PATH"
-RUN mkdir /data
 
+# Setup python
+RUN python3 -m venv venv
+ENV PATH="venv/bin:$PATH"
+RUN pip install --upgrade pip
+RUN pip install cutseq snakemake polars scipy
+
+RUN mkdir /data
 # Set the default command
 CMD ["bash"]
 
+COPY Snakefile* /app/

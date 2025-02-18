@@ -21,7 +21,3 @@ autoconf -Wno-syntax					# Generate the configure script
 make -j 16
 cd ..
 
-# Setup python
-python3 -m venv venv
-venv/bin/pip install --upgrade pip
-venv/bin/pip install cutseq snakemake polars scipy
