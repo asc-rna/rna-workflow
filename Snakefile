@@ -31,7 +31,7 @@ rule cut_fastq:
         cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut",
     shell:
         """
-        {CUTSEQ} {input.fastq} -t 20 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
+        {CUTSEQ} {input.fastq} -t 60 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
         -o {output.cut} -O "{OUTPUT_DIR}/{CASE_ID}.fastq"
         """
 
@@ -74,9 +74,9 @@ rule align_to_genome:
     shell:
         """
         numactl --cpunodebind=0,1 --membind=0 --physcpubind=0-43 \
-        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 32 --summary-file {output.summary} \
+        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 44 --summary-file {output.summary} \
         --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
-        numactl --cpunodebind=1 --membind=1 --physcpubind=44-62 \
+        numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 \
         {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM -U {output.unmapped_bam} -o {output.mapped_bam}
         """
 
