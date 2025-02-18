@@ -13,9 +13,9 @@ FASTQ_DIR = INPUT_DIR
 RESULT_DIR = "/data/result"
 
 CUTSEQ = "cutseq"
-HISAT = "./hisat-3n/hisat-3n"
-HISAT_TABLE = "./hisat-3n/hisat-3n-table"
-SAMTOOLS = "./samtools/samtools"
+HISAT = "/app/hisat-3n/hisat-3n"
+HISAT_TABLE = "/app/hisat-3n/hisat-3n-table"
+SAMTOOLS = "/app/samtools/samtools"
 
 
 # 最终目标
@@ -31,7 +31,7 @@ rule cut_fastq:
         cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut",
     shell:
         """
-        {CUTSEQ} {input.fastq} -t 20 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
+        {CUTSEQ} {input.fastq} -t 60 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
         -o {output.cut} -O "{OUTPUT_DIR}/{CASE_ID}.fastq"
         """
 
@@ -46,9 +46,9 @@ rule align_to_ncrna:
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.summary"
     shell:
         """
-        numactl --cpunodebind=0 --membind=0 --physcpubind=0-15 \
+        numactl --cpunodebind=0 --membind=0 --physcpubind=0-25 \
         {HISAT} --index {input.ref_fa_ncrna} --summary-file {output.summary} \
-        --new-summary -q -U {input.fastq_cut} -p 16 --base-change C,T --mp 8,2 --no-spliced-alignment \
+        --new-summary -q -U {input.fastq_cut} -p 26 --base-change C,T --mp 8,2 --no-spliced-alignment \
         --directional-mapping | numactl --cpunodebind=1 --membind=1 --physcpubind=32-47 \
         {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM \
         -U {output.unmapped_bam} -o {output.mapped_bam}
@@ -64,6 +64,7 @@ rule bam_to_fastq:
         "{SAMTOOLS} fastq -@ 16 -O {input.unmapped_bam} > {output.mRNA_fastq}"
 
 # 5. 比对到基因组
+
 rule align_to_genome:
     input:
         fastq = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.fastq"
@@ -73,10 +74,10 @@ rule align_to_genome:
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.summary"
     shell:
         """
-        numactl --cpunodebind=0 --membind=0 --physcpubind=0-31 \
-        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 32 --summary-file {output.summary} \
+        numactl --cpunodebind=0,1 --membind=0 --physcpubind=0-43 \
+        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 44 --summary-file {output.summary} \
         --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
-        numactl --cpunodebind=1 --membind=1 --physcpubind=32-47 \
+        numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 \
         {SAMTOOLS} view -@ 16 -e '!flag.unmap' -O BAM -U {output.unmapped_bam} -o {output.mapped_bam}
         """
 

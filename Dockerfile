@@ -25,28 +25,39 @@ RUN apt-get install -y \
 # Set the working directory
 WORKDIR /app
 # Ensure the virtual environment is activated automatically
-ENV PATH="venv/bin:$PATH"
+# ENV PATH="venv/bin:$PATH"
 
 # Copy files from the host into the container
-COPY . .
+# COPY . .
+COPY Umicollapse  /app/Umicollapse
+COPY hisat-3n  /app/hisat-3n
+COPY htslib /app/htslib
+COPY samtools /app/samtools
+COPY build.sh /app/build.sh
+
 RUN chmod +x build.sh && ./build.sh
+
 
 # Use Debian Bookworm as the base image
 FROM docker.s.thusaac.com:12711/library/debian:bookworm
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update
-RUN apt-get install -y openjdk-17-jre-headless
-RUN apt-get install -y python3
-RUN apt-get install -y python3-pip
-RUN apt-get install -y python3-venv
-RUN apt-get install -y numactl
+RUN apt-get update && \
+apt-get install -y openjdk-17-jre-headless && \
+apt-get install -y numactl && \
+apt-get install -y python3 
+# apt-get install -y python3-pip && \
+# apt-get install -y python3-venv
 
-WORKDIR /app
+# WORKDIR /app
 COPY --from=builder /app /app
-ENV PATH="venv/bin:$PATH"
+# COPY Snakefile /app/Snakefile
+# COPY Snakefile-stage2 /app/Snakefile-stage2
+
+ENV PATH="/app/venv/bin:$PATH"
 RUN mkdir /data
 
+WORKDIR /script
 # Set the default command
 CMD ["bash"]
 
