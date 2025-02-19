@@ -84,7 +84,10 @@ rule sort_bam:
     output:
         sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
     shell:
-        "{SAMTOOLS} sort -@ 16 --write-index -O BAM,level=0 -o {output.sorted_bam} {input.mapped_bam}"
+        """
+        numactl --cpunodebind=0 --membind=0 --physcpubind=0-15 \
+        {SAMTOOLS} sort -m 20G -@ 16 --write-index -O BAM,level=0 -o {output.sorted_bam} {input.mapped_bam}
+        """
 
 # 7. UMI 去重
 rule umi_dedup:
