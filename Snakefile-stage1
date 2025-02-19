@@ -70,8 +70,8 @@ rule align_to_genome:
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.summary"
     shell:
         """
-        numactl --cpunodebind=0,1 --membind=0 --physcpubind=0-43 \
-        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 44 --summary-file {output.summary} \
+        numactl --cpunodebind=0,1 --membind=0 --physcpubind=0-41 \
+        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 42 --summary-file {output.summary} \
         --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
         numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 \
         {SAMTOOLS} view -e '!flag.unmap' -u -o {output.mapped_bam}
