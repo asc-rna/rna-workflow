@@ -28,7 +28,7 @@ rule cut_fastq:
     input:
         fastq = f"{FASTQ_DIR}/{CASE_ID}.fastq"
     output:
-        cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut",
+        cut = temp(f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut"),
     shell:
         """
         {CUTSEQ} {input.fastq} -t 60 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
@@ -57,9 +57,11 @@ rule bam_to_fastq:
     input:
         unmapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.bam"
     output:
-        mRNA_fastq = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.fastq"
+        mRNA_fastq = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.fastq")
     shell:
+        """
         numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 {SAMTOOLS} fastq -O {input.unmapped_bam} > {output.mRNA_fastq}
+        """
 
 # 5. 比对到基因组
 rule align_to_genome:
@@ -82,7 +84,7 @@ rule sort_bam:
     input:
         mapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.bam"
     output:
-        sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
+        sorted_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam")
     shell:
         """
         numactl --cpunodebind=0 --membind=0 --physcpubind=0-15 \
@@ -94,7 +96,7 @@ rule umi_dedup:
     input:
         sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
     output:
-        dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
+        dedup_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam"),
         log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
     shell:
         """
@@ -150,12 +152,12 @@ rule filter_bam:
     input:
         dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
     output:
-        filtered_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam"
+        filtered_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam")
     shell:
         """
         {SAMTOOLS} view -@ 8 \
             -e "[XM] * 20 <= (qlen-sclen) && [Zf] <= 3 && 3 * [Zf] <= [Zf] + [Yf]" \
-            {input.dedup_bam} -O BAM -o {output.filtered_bam}
+            {input.dedup_bam} -O BAM,level=0 -o {output.filtered_bam}
         """
 
 # 8.4：生成 filtered_uniq.tsv.gz ==========

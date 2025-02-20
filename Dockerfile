@@ -54,6 +54,7 @@ RUN python3 -m venv venv
 ENV PATH="venv/bin:$PATH"
 RUN pip install --upgrade pip
 RUN pip install cutseq snakemake polars scipy
+COPY m5C-UBSseq /app/m5C-UBSseq
 
 RUN mkdir /data
 # Set the default command
