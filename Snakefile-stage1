@@ -107,8 +107,8 @@ rule umi_dedup:
             -Dsamjdk.use_async_io_read_samtools=true \
             -Dsamjdk.compression_level=0 \
             -jar ./Umicollapse/umicollapse.jar \
-            bam --data naive --merge avgqual --algo dir --two-pass \
-            -i {input.sorted_bam} -o {output.dedup_bam} > {output.log}
+            {input.sorted_bam} {output.dedup_bam} \
+            > {output.log}
         """
 
 # 8.1：生成 unfiltered_uniq.tsv.gz ==========

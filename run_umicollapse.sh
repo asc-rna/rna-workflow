@@ -2,7 +2,7 @@ OUTPUT_DIR="/mnt/ramdisk/rna/yyyyxh/output"
 TEMP_DIR="/mnt/ramdisk/rna/yyyyxh/tmp"
 CASE_ID="SRR23538290"
 
-cd Umicollapse
+cd Umicollapse_upd
 
 rm -f umicollapse.jar
 rm -rf bin
@@ -35,7 +35,7 @@ cd ..
 rm -f "$OUTPUT_DIR/$CASE_ID.mRNA.genome.mapped.sorted.dedup.bam"
 rm -f "$OUTPUT_DIR/$CASE_ID.mRNA.genome.mapped.sorted.dedup.log"
 
-# exit 0
+exit 0
 
 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir="$TEMP_DIR" \
     -XX:+UseZGC \
@@ -43,7 +43,7 @@ java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir="$TEMP_DIR" \
     -Dsamjdk.sort_col_threads=2 \
     -Dsamjdk.use_async_io_read_samtools=true \
     -Dsamjdk.compression_level=0 \
-    -jar ./Umicollapse/umicollapse.jar \
+    -jar ./Umicollapse_upd/umicollapse.jar \
     "$OUTPUT_DIR/$CASE_ID.mRNA.genome.mapped.sorted.bam" \
     "$OUTPUT_DIR/$CASE_ID.mRNA.genome.mapped.sorted.dedup.bam" \
     > "$OUTPUT_DIR/$CASE_ID.mRNA.genome.mapped.sorted.dedup.log"
