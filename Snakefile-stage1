@@ -2,15 +2,15 @@
 import os
 
 # 配置路径
-OUTPUT_DIR = "/data/output"
-TEMP_DIR = config.get('temp_dir') or "/tmp"
+OUTPUT_DIR = "/mnt/ramdisk/rna/yyyyxh/output"
+TEMP_DIR = config.get('temp_dir') or "/mnt/ramdisk/rna/yyyyxh/tmp"
 CASE_ID = config.get('case_id') or "SRR23538290"
 
-INPUT_DIR = "/data/input"
+INPUT_DIR = "/mnt/treasure/asc25/rna/input"
 REF_DIR = INPUT_DIR
-FASTQ_DIR = INPUT_DIR
+FASTQ_DIR = "/mnt/treasure/asc25/rna/fastq"
 
-RESULT_DIR = "/data/result"
+RESULT_DIR = "/mnt/ramdisk/rna/yyyyxh/result"
 
 CUTSEQ = "cutseq"
 HISAT = "./hisat-3n/hisat-3n"

@@ -1,5 +1,5 @@
-import htsjdk.samtools.SAMRecord;
 import htsjdk.samtools.SamReader;
+import htsjdk.samtools.SAMRecord;
 import htsjdk.samtools.ValidationStringency;
 import htsjdk.samtools.SamReaderFactory;
 import htsjdk.samtools.SAMRecordIterator;
@@ -240,14 +240,6 @@ class Read{
             avg += b;
 
         this.avgQual = (int)(avg / record.getReadLength());
-    }
-
-    public static void setDefaultUMIPattern(String sep){
-        defaultUMIPattern = umiPattern(sep);
-    }
-
-    public static Pattern umiPattern(String sep){
-        return Pattern.compile("^(.*)" + sep + "([ATCGN]+)(.*?)$", Pattern.CASE_INSENSITIVE);
     }
 
     public BitSet getUMI(int maxLength){
@@ -577,8 +569,6 @@ class DeduplicateSAM{
 
         System.out.println("[" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "] Done with the first pass!");
 
-        Read.setDefaultUMIPattern("_");
-
         SamReader reader = SamReaderFactory.makeDefault().validationStringency(ValidationStringency.SILENT).open(in);
 
         int idx = 0;
@@ -667,7 +657,6 @@ class DeduplicateSAM{
             this.writer = new SAMFileWriterFactory()
             .makeSAMOrBAMWriter(header, false, out);
         } 
-                    // .setMaxRecordsInRam(1<<27)
 
         public void write(SAMRecord record){
             writer.addAlignment(record);

@@ -1,4 +1,4 @@
-OUTPUT_DIR = "/data/result"
+OUTPUT_DIR = "/mnt/ramdisk/rna/yyyyxh/result"
 FINAL_DIR = OUTPUT_DIR
 # 最终目标
 rule all:
