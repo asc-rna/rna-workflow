@@ -197,7 +197,6 @@ class Read{
         ENCODING_IDX.put(UNDETERMINED, 4);
     }
 
-    private static Pattern defaultUMIPattern;
     private SAMRecord record;
     private int avgQual;
     private String umi;
@@ -544,7 +543,7 @@ class DeduplicateSAM{
         public Writer(File in, File out, SamReader r){
             SAMFileHeader header = r.getFileHeader();
             this.writer = new SAMFileWriterFactory()
-            .makeSAMOrBAMWriter(header, false, out);
+            .makeBAMWriter(header, false, out);
         } 
 
         public void write(SAMRecord record){
