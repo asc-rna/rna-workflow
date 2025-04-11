@@ -242,13 +242,8 @@ class Read{
         this.avgQual = (int)(avg / record.getReadLength());
     }
 
-    public BitSet getUMI(int maxLength){
-        String umi_cut = this.umi;
-        if (maxLength >= 0 && umi.length() > maxLength) {
-            umi_cut = this.umi.substring(0, maxLength);
-        }
-
-        return toBitSet(umi_cut);
+    public BitSet getUMI(){
+        return toBitSet(this.umi);
     }
 
     public int getUMILength(){
@@ -291,110 +286,6 @@ class UmiFreq{
     public UmiFreq(BitSet umi, ReadFreq readFreq){
         this.umi = umi;
         this.readFreq = readFreq;
-    }
-}
-
-class ClusterTracker{
-    private boolean track;
-    private int offset;
-
-    private List<BitSet> temp;
-    private int tempFreq;
-
-    private Map<BitSet, Integer> toUniqueIdx;
-    private List<ClusterStats> clusters;
-    private int idx;
-
-    public ClusterTracker(boolean track){
-        this.track = track;
-        this.offset = 0;
-
-        this.temp = new ArrayList<BitSet>();
-        this.tempFreq = 0;
-
-        this.toUniqueIdx = new HashMap<BitSet, Integer>();
-        this.clusters = new ArrayList<ClusterStats>();
-        this.idx = 0;
-    }
-
-    public boolean shouldTrack(){
-        return this.track;
-    }
-
-    public void setOffset(int offset){
-        this.offset = offset;
-    }
-
-    public int getOffset(){
-        return this.offset;
-    }
-
-    public void addAll(Set<BitSet> s, Map<BitSet, ReadFreq> reads){
-        if(this.track){
-            this.temp.addAll(s);
-
-            for(BitSet umi : s)
-                this.tempFreq += reads.get(umi).freq;
-        }
-    }
-
-    public void addAllImp(List<BitSet> s, Map<BitSet, ReadFreq> reads){
-        if (this.track) {
-            // 遍历数组，把所有 BitSet 加入 temp
-            for (BitSet umi : s) {
-                this.temp.add(umi);
-    
-                // 防止 reads.get(umi) 为空导致 NullPointerException
-                ReadFreq rf = reads.get(umi);
-                this.tempFreq += rf.freq;
-                
-            }
-        }
-    }
-
-    public void track(BitSet unique, Read read){
-        if(this.track){
-            for(BitSet s : this.temp)
-                this.toUniqueIdx.put(s, idx);
-
-            clusters.add(new ClusterStats(unique, tempFreq, read));
-
-            this.temp.clear();
-            this.tempFreq = 0;
-            this.idx++;
-        }
-    }
-
-    public int getId(BitSet umi){
-        return toUniqueIdx.get(umi);
-    }
-
-    public ClusterStats getStats(int id){
-        return clusters.get(id);
-    }
-
-    public static class ClusterStats{
-        private BitSet umi;
-        private int freq;
-        private Read read;
-
-        public ClusterStats(BitSet umi, int freq, Read read){
-            this.umi = umi;
-            this.freq = freq;
-            this.read = read;
-        }
-
-        public BitSet getUMI(){
-            return this.umi;
-        }
-
-        public int getFreq(){
-            return this.freq;
-        }
-
-        public Read getRead(){
-            return this.read;
-        }
     }
 }
 
@@ -467,7 +358,7 @@ class Merge{
 }
 
 class Algo{
-    public List<Read> apply(Map<BitSet, ReadFreq> reads, Data data, ClusterTracker tracker, int umiLength){
+    public List<Read> apply(Map<BitSet, ReadFreq> reads, Data data, int umiLength){
         UmiFreq[] freq = new UmiFreq[reads.size()];
         List<Read> res = new ArrayList<>();
         Map<BitSet, Integer> m = new HashMap<>();
@@ -486,8 +377,7 @@ class Algo{
 
         for(int i = 0; i < freq.length; i++){
             if(data.contains(freq[i].umi)){
-                visitAndRemove(freq[i].umi, reads, data, tracker);
-                tracker.track(freq[i].umi, freq[i].readFreq.read);
+                visitAndRemove(freq[i].umi, reads, data);
                 res.add(freq[i].readFreq.read);
             }
         }
@@ -495,15 +385,14 @@ class Algo{
         return res;
     }
 
-    private void visitAndRemove(BitSet u, Map<BitSet, ReadFreq> reads, Data data, ClusterTracker tracker){
+    private void visitAndRemove(BitSet u, Map<BitSet, ReadFreq> reads, Data data){
         List<BitSet> ci = data.removeNearImp(u, (int)(0.5f * (reads.get(u).freq + 1)));
-        tracker.addAllImp(ci, reads);
 
         for (BitSet v : ci) {
             if (u.equals(v))
                 continue;
 
-            visitAndRemove(v, reads, data, tracker);
+            visitAndRemove(v, reads, data);
         }
     }
 }
@@ -595,7 +484,7 @@ class DeduplicateSAM{
                 alignReads.umiRead = new HashMap<BitSet, ReadFreq>(4);
 
             Read read = new Read(record);
-            BitSet umi = read.getUMI(-1);
+            BitSet umi = read.getUMI();
             umiLength = read.getUMILength();
 
             if(alignReads.umiRead.containsKey(umi)){
@@ -610,7 +499,7 @@ class DeduplicateSAM{
                 List<Read> deduped;
                 Data data = new Data();
 
-                deduped = algo.apply(alignReads.umiRead, data, new ClusterTracker(false), umiLength);
+                deduped = algo.apply(alignReads.umiRead, data, umiLength);
 
                 avgUMICount += alignReads.umiRead.size();
                 maxUMICount = Math.max(maxUMICount, alignReads.umiRead.size());
