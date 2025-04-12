@@ -1,0 +1,219 @@
+# Snakefile
+import os
+
+# 配置路径
+OUTPUT_DIR = "/mnt/ramdisk/rna/yyyyxh/output"
+TEMP_DIR = config.get('temp_dir') or "/mnt/ramdisk/rna/yyyyxh/tmp"
+CASE_ID = config.get('case_id') or "SRR23538290"
+
+INPUT_DIR = "/mnt/treasure/asc25/rna/input"
+REF_DIR = INPUT_DIR
+FASTQ_DIR = "/mnt/treasure/asc25/rna/fastq"
+
+RESULT_DIR = "/mnt/ramdisk/rna/yyyyxh/result"
+
+CUTSEQ = "cutseq"
+HISAT = "./hisat-3n/hisat-3n"
+HISAT_TABLE = "./hisat-3n/hisat-3n-table"
+SAMTOOLS = "./samtools/samtools"
+
+
+# 最终目标
+rule all:
+    input:
+        f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
+        
+# 2. 修剪 FASTQ
+rule cut_fastq:
+    input:
+        fastq = f"{FASTQ_DIR}/{CASE_ID}.fastq"
+    output:
+        cut = temp(f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut"),
+    shell:
+        """
+        {CUTSEQ} {input.fastq} -t 60 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
+        -o {output.cut} -O "{OUTPUT_DIR}/{CASE_ID}.fastq"
+        """
+
+# 3. 比对到 ncRNA
+rule align_to_ncrna:
+    input:
+        fastq_cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut",
+        ref_fa_ncrna = f"{REF_DIR}/Homo_sapiens.GRCh38.ncrna.fa",
+    output:
+        unmapped_bam = pipe(f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.bam"),
+        summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.summary"
+    shell:
+        """
+        numactl --cpunodebind=0 --membind=0 --physcpubind=0-25 \
+        {HISAT} --index {input.ref_fa_ncrna} --summary-file {output.summary} \
+        --new-summary -q -U {input.fastq_cut} -p 26 --base-change C,T --mp 8,2 --no-spliced-alignment \
+        --directional-mapping | numactl --cpunodebind=1 --membind=1 --physcpubind=32-47 \
+        {SAMTOOLS} view -e 'flag.unmap' -u -o {output.unmapped_bam}
+        """
+
+# 4. 从 BAM 转 FASTQ
+rule bam_to_fastq:
+    input:
+        unmapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.bam"
+    output:
+        mRNA_fastq = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.fastq")
+    shell:
+        """
+        numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 {SAMTOOLS} fastq -O {input.unmapped_bam} > {output.mRNA_fastq}
+        """
+
+# 5. 比对到基因组
+rule align_to_genome:
+    input:
+        fastq = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.fastq"
+    output:
+        mapped_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.bam"),
+        summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.summary"
+    shell:
+        """
+        numactl --cpunodebind=0,1 --membind=0 --physcpubind=0-41 \
+        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 42 --summary-file {output.summary} \
+        --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
+        numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 \
+        {SAMTOOLS} view -e '!flag.unmap' -u -o {output.mapped_bam}
+        """
+
+# 6. 排序 BAM
+rule sort_bam:
+    input:
+        mapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.bam"
+    output:
+        sorted_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam")
+    shell:
+        """
+        numactl --cpunodebind=0 --membind=0 --physcpubind=0-15 \
+        {SAMTOOLS} sort -m 20G -@ 16 --write-index -O BAM,level=0 -o {output.sorted_bam} {input.mapped_bam}
+        """
+
+# 7. UMI 去重
+
+
+rule umi_dedup:
+    input:
+        sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
+    output:
+        dedup_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam"),
+        log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
+    shell:
+        """
+        export LD_LIBRARY_PATH=./cpp_umicollapse/lib:$LD_LIBRARY_PATH; 
+        ./cpp_umicollapse/umicollapse \
+            {input.sorted_bam} \
+            {output.dedup_bam} \
+            > {output.log}
+        """
+
+#        """
+#        taskset -c 0-63 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
+#            -XX:+UseZGC \
+#            -Dthread.pool.size=16 \
+#            -Dsamjdk.sort_col_threads=2 \
+#            -Dsamjdk.use_async_io_read_samtools=true \
+#            -Dsamjdk.compression_level=0 \
+#            -jar ./Umicollapse/umicollapse.jar \
+#            {input.sorted_bam} {output.dedup_bam} \
+#            > {output.log}
+#        """
+
+# 8.1：生成 unfiltered_uniq.tsv.gz ==========
+rule unfiltered_uniq:
+    input:
+        dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
+        ref_fa = f"{REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa",
+    output:
+        unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv.gz"
+    shell:
+        """
+        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
+        {HISAT_TABLE} -p 10 -u --alignments - \
+            --ref {input.ref_fa} \
+            --output-name /dev/stdout --base-change C,T |
+        gzip -c > {output.unfiltered_uniq}
+        """
+
+# 8.2：生成 unfiltered_multi.tsv.gz ==========
+rule unfiltered_multi:
+    input:
+        dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
+        ref_fa = f"{REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa",
+    output:
+        unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv.gz"
+    shell:
+        """
+        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
+        {HISAT_TABLE} -p 10 -m --alignments - \
+            --ref {input.ref_fa} \
+            --output-name /dev/stdout --base-change C,T |
+        gzip -c > {output.unfiltered_multi}
+        """
+
+# 8.3：生成 filtered BAM ==========
+rule filter_bam:
+    """
+    生成 {CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam
+    主要根据 [XM], [Zf], [Yf], qlen, sclen 等 TAG 进行过滤
+    """
+    input:
+        dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
+    output:
+        filtered_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam")
+    shell:
+        """
+        {SAMTOOLS} view -@ 8 \
+            -e "[XM] * 20 <= (qlen-sclen) && [Zf] <= 3 && 3 * [Zf] <= [Zf] + [Yf]" \
+            {input.dedup_bam} -O BAM,level=0 -o {output.filtered_bam}
+        """
+
+# 8.4：生成 filtered_uniq.tsv.gz ==========
+rule filtered_uniq:
+    input:
+        filtered_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam",
+        ref_fa = f"{REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa",
+    output:
+        filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv.gz"
+    shell:
+        """
+        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
+        {HISAT_TABLE} -p 10 -u --alignments - \
+            --ref {input.ref_fa} \
+            --output-name /dev/stdout --base-change C,T |
+        gzip -c > {output.filtered_uniq}
+        """
+
+# 8.5：生成 filtered_multi.tsv.gz ==========
+rule filtered_multi:
+    input:
+        filtered_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam",
+        ref_fa = f"{REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa",
+    output:
+        filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv.gz"
+    shell:
+        """
+        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
+        {HISAT_TABLE} -p 10 -m --alignments - \
+            --ref {input.ref_fa} \
+            --output-name /dev/stdout --base-change C,T |
+        gzip -c > {output.filtered_multi}
+        """
+
+
+# 9. 合并 TSV 并生成最终输出
+rule join_pileup:
+    input:
+        unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv.gz",
+        unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv.gz",
+        filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv.gz",
+        filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv.gz"
+    output:
+        arrow = f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
+    shell:
+        """
+        python3 m5C-UBSseq/bin/join_pileup.py -i {input.unfiltered_uniq} {input.unfiltered_multi} \
+        {input.filtered_uniq} {input.filtered_multi} -o {output.arrow}
+        """

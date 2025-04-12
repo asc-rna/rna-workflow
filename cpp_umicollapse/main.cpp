@@ -422,7 +422,6 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
     // End Second Pass
 
     // Reset File Pointer
-    fprintf(stderr, "UMIDedup : %d\n", UMIDedup);
     
     fprintf(stderr, "Start Third Pass\n");
 
@@ -497,7 +496,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    htsFile *out_fp = sam_open(argv[2], "w");
+    htsFile *out_fp = sam_open(argv[2], "wb");
     if (out_fp == NULL) {
         fprintf(stderr, "Error: Unable to open %s\n", argv[2]);
         hts_close(fp);

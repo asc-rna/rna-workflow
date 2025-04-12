@@ -2,4 +2,3 @@
 *.log
 .snakemake/
 Umicollapse_upd/bin/
-Snakefile-tmp
