@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <numeric>
 #include <stdexcept>
 #include <algorithm>
 #include <functional>
@@ -30,13 +31,13 @@ uint16_t ChartoBit(char c) {
 
 struct BitSet {
     uint64_t* bits;
-    size_t UMI_length, length, hash;
+    size_t UMI_length, length;
 
-    BitSet() : bits(NULL), UMI_length(0), length(0), hash(0) {
+    BitSet() : bits(NULL), UMI_length(0), length(0) {
         bits = NULL;
     }
 
-    BitSet(size_t UMI_len, char *UMI_str) : bits(NULL), hash(0) {
+    BitSet(size_t UMI_len, char *UMI_str) : bits(NULL) {
         UMI_length = UMI_len;
         length = (UMI_len * CODE_LENGTH + 63) >> 6;
         bits = (uint64_t*)calloc(length, sizeof(uint64_t));
@@ -44,21 +45,17 @@ struct BitSet {
             fprintf(stderr, "Error: Memory allocation failed\n");
             throw std::runtime_error("Memory allocation failed");
         }
-        hash = 0;
-        for (int i = 0, pos = 0; i < UMI_len; ++i) {
+        for (size_t i = 0, pos = 0; i < UMI_len; ++i) {
             uint16_t x = ChartoBit(UMI_str[i]);
-            hash = hash * HASH_BASE + UMI_str[i];
             for (int j = 0; j < CODE_LENGTH; ++j) {
-                if (x >> j & 1) {
-                    int pos = i * CODE_LENGTH + j;
+                if (x >> j & 1)
                     bits[pos >> 6] |= 1ULL << (pos & 63);
-                }
                 ++pos;
             }
         }
     }
 
-    BitSet(const BitSet& other) : bits(NULL), UMI_length(other.UMI_length), length(other.length), hash(other.hash) {
+    BitSet(const BitSet& other) : bits(NULL), UMI_length(other.UMI_length), length(other.length) {
         if (other.bits) {
             bits = (uint64_t*)calloc(length, sizeof(uint64_t));
             if (bits == NULL) {
@@ -75,7 +72,6 @@ struct BitSet {
             bits = NULL;
             UMI_length = other.UMI_length;
             length = other.length;
-            hash = other.hash;
             if (other.bits) {
                 bits = (uint64_t*)calloc(length, sizeof(uint64_t));
                 if (bits == NULL) {
@@ -108,8 +104,6 @@ struct BitSet {
             fprintf(stderr, "Error: UMI lengths do not match\n");
             throw std::runtime_error("UMI lengths do not match");
         }
-        if (hash != other.hash)
-            return true;
         for (size_t i = 0; i < length; ++i)
             if (bits[i] != other.bits[i])
                 return true;
@@ -121,8 +115,6 @@ struct BitSet {
             fprintf(stderr, "Error: UMI lengths do not match\n");
             throw std::runtime_error("UMI lengths do not match");
         }
-        if (hash != other.hash)
-            return hash < other.hash;
         for (size_t i = 0; i < length; ++i)
             if (bits[i] != other.bits[i])
                 return bits[i] < other.bits[i];
@@ -261,21 +253,33 @@ struct AlignRead {
 
 std::unordered_map<Alignment, AlignRead, AlignmentHasher> align_map;
 std::vector<bool> exist_pos, exist_freq;
+std::vector<int> jumper;
 std::vector<FreqRead> freq_vec;
 size_t freq_length;
 
+int JumpToExist(int x) {
+    if (x < 0)
+        return -1;
+    if (exist_freq[x])
+        return x;
+    else
+        return jumper[x] = JumpToExist(jumper[x]);
+}
+
 void RemoveNear(int x) {
     exist_freq[x] = false;
+    jumper[x] = x - 1;
     int limit = ceil(freq_vec[x].freq * PERCENTAGE);
-    size_t y = freq_length;
-    while(y) {
-        --y;
-        if (freq_vec[y].freq <= limit)
+    int y = JumpToExist((int)freq_length - 1);
+
+    while (y >= 0) {
+        if (freq_vec[y].freq > limit)
             break;
-        if (exist_freq[y] && freq_vec[x].UMI.HammingDist(freq_vec[y].UMI) <= HAMMING_LIM) {
+        if (freq_vec[x].UMI.HammingDist(freq_vec[y].UMI) <= HAMMING_LIM) {
             exist_freq[y] = false;
             RemoveNear(y);
         }
+        y = JumpToExist(y - 1);
     }
 }
 
@@ -287,6 +291,8 @@ void DedupFreqVec() {
     freq_length = freq_vec.size();
     exist_freq.clear();
     exist_freq.resize(freq_length, true);
+    jumper.resize(freq_length);
+    std::iota(jumper.begin(), jumper.end(), 0);
     
     for (size_t i = 0; i < freq_length; ++i)
         if (exist_freq[i]) {
@@ -347,8 +353,6 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
 
     exist_pos.resize(record_length, false);
 
-    fprintf(stderr, "First Pass: %d records, %d unmapped\n", record_length, count_unmapped);
-
     // End First Pass
 
     // Reset File Pointer
@@ -365,7 +369,7 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
 
     // Begin Second Pass
 
-    int id = 0;
+    int id = 0, UMIDedup = 0;
 
     fprintf(stderr, "Start Second Pass\n");
 
@@ -376,7 +380,6 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
             it = align_map.find(Alignment(record));
 
         if (it == align_map.end()) {
-            
             fprintf(stderr, "Error: Alignment not found in map\n");
             bam_destroy1(record);
             sam_hdr_destroy(header);
@@ -402,9 +405,10 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
             for (size_t i = 0; i < reads_length; ++i) {
                 ++freq;
                 if (i == reads_length - 1 || r_vec[i].UMI != r_vec[i + 1].UMI) {
-                        freq_vec.emplace_back(r_vec[i].UMI, freq, r_vec[i].origin_pos);
-                        freq = 0;
-                    }
+                    ++UMIDedup;
+                    freq_vec.emplace_back(r_vec[i].UMI, freq, r_vec[i].origin_pos);
+                    freq = 0;
+                }
             }
             DedupFreqVec();
             align_map.erase(it);
@@ -418,6 +422,9 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
     // End Second Pass
 
     // Reset File Pointer
+    fprintf(stderr, "UMIDedup : %d\n", UMIDedup);
+    
+    fprintf(stderr, "Start Third Pass\n");
 
     if (bgzf_seek(fp->fp.bgzf, data_start, SEEK_SET) < 0) {
         fprintf(stderr, "Error: Unable to reset file pointer\n");
@@ -443,11 +450,14 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
         hts_close(out_fp);
         throw std::runtime_error("Unable to write header");
     }
+    
+    int count = 0;
 
     while (sam_read1(fp, header, record) >= 0) {
         if (IsUnmapped(record))
             continue;
         if (exist_pos[id]) {
+            ++count;
             // Write This Record
             if (sam_write1(out_fp, header, record) < 0) {
                 fprintf(stderr, "Error: Unable to write record\n");
@@ -462,6 +472,9 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
     }
 
     // End Third Pass
+
+    printf("Number of removed unmapped reads %d\n", count_unmapped);
+    printf("Number of reads after deduplicating %d\n", count);
     
     bam_destroy1(record);
     sam_hdr_destroy(header);
@@ -478,13 +491,13 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    htsFile *fp = hts_open(argv[1], "r");
+    htsFile *fp = sam_open(argv[1], "rb");
     if (fp == NULL) {
         fprintf(stderr, "Error: Unable to open %s\n", argv[1]);
         return 1;
     }
     
-    htsFile *out_fp = hts_open(argv[2], "wb");
+    htsFile *out_fp = sam_open(argv[2], "w");
     if (out_fp == NULL) {
         fprintf(stderr, "Error: Unable to open %s\n", argv[2]);
         hts_close(fp);
@@ -493,7 +506,6 @@ int main(int argc, char *argv[]) {
 
     MarkDedupThreePass(fp, out_fp);
 
-    // Record End Time
     time_t end_time = time(NULL);
 
     printf("UMICollapse finished in %.2f seconds\n", difftime(end_time, start_time));

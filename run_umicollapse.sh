@@ -35,7 +35,7 @@ cd ..
 rm -f "$OUTPUT_DIR/$CASE_ID.mRNA.genome.mapped.sorted.dedup.bam"
 rm -f "$OUTPUT_DIR/$CASE_ID.mRNA.genome.mapped.sorted.dedup.log"
 
-exit 0
+# exit 0
 
 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir="$TEMP_DIR" \
     -XX:+UseZGC \

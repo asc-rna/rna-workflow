@@ -431,7 +431,7 @@ class DeduplicateSAM{
         avgUMICount = 0;
         maxUMICount = 0;
         dedupedCount = 0;
-
+        int UMIDedup = 0;
         for(SAMRecord record : reader){
             if(record.getReadUnmappedFlag()) // discard unmapped reads
                 continue;
@@ -465,6 +465,7 @@ class DeduplicateSAM{
             }
 
             if(idx >= alignReads.latest){
+                UMIDedup += alignReads.umiRead.size();
                 List<Read> deduped;
                 Data data = new Data();
 
@@ -498,6 +499,7 @@ class DeduplicateSAM{
         System.out.println("Number of removed unmapped reads\t" + unmapped);
 
         System.out.println("Number of unremoved reads\t" + readCount);
+        System.out.println("UMIDedup\t" + UMIDedup);
         System.out.println("Number of unique alignment positions\t" + alignPosCount);
         System.out.println("Average number of UMIs per alignment position\t" + ((double)avgUMICount / alignPosCount));
         System.out.println("Max number of UMIs over all alignment positions\t" + maxUMICount);
