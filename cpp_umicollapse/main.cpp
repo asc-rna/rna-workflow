@@ -1,16 +1,21 @@
 #include <ctime>
+#include <cmath>
 #include <vector>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include <algorithm>
 #include <functional>
 #include <unordered_map>
-#include "htslib/sam.h"
+#include <htslib/sam.h>
+#include <htslib/bgzf.h>
 
 const size_t HASH_BASE = 329;
 const int CODE_LENGTH = 5;
 const int CODE_DIST = 2;
+const float PERCENTAGE = 0.5f;
+const int HAMMING_LIM = 1;
 
 uint16_t ChartoBit(char c) {
     switch (c) {
@@ -98,20 +103,33 @@ struct BitSet {
         return dist / CODE_DIST;
     }
 
-    bool operator==(const BitSet &other) const {
+    bool operator!=(const BitSet &other) const {
         if (UMI_length != other.UMI_length) {
             fprintf(stderr, "Error: UMI lengths do not match\n");
             throw std::runtime_error("UMI lengths do not match");
         }
-        return hash == other.hash && memcmp(bits, other.bits, length * sizeof(uint64_t)) == 0;
+        if (hash != other.hash)
+            return true;
+        for (size_t i = 0; i < length; ++i)
+            if (bits[i] != other.bits[i])
+                return true;
+        return false;
+    }
+
+    bool operator<(const BitSet &other) const {
+        if (UMI_length != other.UMI_length) {
+            fprintf(stderr, "Error: UMI lengths do not match\n");
+            throw std::runtime_error("UMI lengths do not match");
+        }
+        if (hash != other.hash)
+            return hash < other.hash;
+        for (size_t i = 0; i < length; ++i)
+            if (bits[i] != other.bits[i])
+                return bits[i] < other.bits[i];
+        return false;
     }
 };
 
-struct BitSetHasher {
-    size_t operator()(const BitSet &bitset) const {
-        return bitset.hash;
-    }
-};
 
 bool IsUnmapped(const bam1_t *record) {
     return (record->core.flag & BAM_FUNMAP) != 0;
@@ -121,7 +139,9 @@ bool IsNegativeStrand(const bam1_t *record) {
     return (record->core.flag & BAM_FREVERSE) != 0;
 }
 
-void AnalyseUMI(const bam1_t *record, BitSet &UMI) {
+// AnalyseUMI function to extract UMI from the record
+
+BitSet AnalyseUMI(const bam1_t *record) {
     char *qname = bam_get_qname(record);
     char *UMI_str = strrchr(qname, '_');
 
@@ -137,30 +157,8 @@ void AnalyseUMI(const bam1_t *record, BitSet &UMI) {
         throw std::runtime_error("UMI length is zero");
     }
 
-    UMI = BitSet(UMI_len, UMI_str);
+    return BitSet(UMI_len, UMI_str);
 }
-
-struct Alignment {
-    bool neg_strand;
-    int32_t align_pos, ref_tid;
-    size_t origin_pos;
-
-    Alignment() : neg_strand(false), align_pos(0), origin_pos(0), ref_tid(0) {
-    }
-
-    bool operator==(const Alignment &other) const {
-        return neg_strand == other.neg_strand && align_pos == other.align_pos && ref_tid == other.ref_tid;
-    }
-};
-
-struct AlignmentHasher {
-    size_t operator()(const Alignment &align) const {
-        // hash involve neg_strand align_pos ref_tid
-        return std::hash<bool>()(align.neg_strand) ^ std::hash<int32_t>()(align.align_pos) ^ std::hash<int32_t>()(align.ref_tid);
-    }
-};
-
-unordered_map<Aligment, BitSet, AlignmentHasher> UMI_map;
 
 int32_t getAlignPos(const bam1_t *record) {
     int32_t align_pos = record->core.pos;
@@ -198,10 +196,110 @@ int32_t getAlignPos(const bam1_t *record) {
     }
 }
 
-std::vector<bam1_t*> orgin_record;
+struct Alignment {
+    bool neg_strand;
+    int32_t align_pos, ref_tid;
 
-void MarkDedup(htsFile *fp, htsFile *out_fp) {
-    fflush(stderr);
+    Alignment() : neg_strand(false), align_pos(0), ref_tid(0) {
+    }
+
+    Alignment(const bam1_t *record) :
+        neg_strand(IsNegativeStrand(record)),
+        align_pos(getAlignPos(record)),
+        ref_tid(record->core.tid) {
+        if (ref_tid < 0) {
+            fprintf(stderr, "Error: Invalid reference ID\n");
+            throw std::runtime_error("Invalid reference ID");
+        }
+    }
+
+    bool operator==(const Alignment &other) const {
+        return neg_strand == other.neg_strand &&
+                align_pos == other.align_pos &&
+                  ref_tid == other.ref_tid;
+    }
+};
+
+struct AlignmentHasher {
+    size_t operator()(const Alignment &align) const {
+        // hash involve neg_strand align_pos ref_tid
+        return std::hash<bool>()(align.neg_strand) ^ std::hash<int32_t>()(align.align_pos) ^ std::hash<int32_t>()(align.ref_tid);
+    }
+};
+
+struct Read {
+    BitSet UMI;
+    int origin_pos, avgQual;
+    Read(int id, const bam1_t *record) : UMI(AnalyseUMI(record)), origin_pos(id), avgQual(0) {
+        if (record == NULL) {
+            fprintf(stderr, "Error: Record is NULL\n");
+            throw std::runtime_error("Record is NULL");
+        }
+        // Caculate Average Quality
+        uint8_t *qual = bam_get_qual(record);
+        int32_t len = record->core.l_qseq;
+        float avg = 0.0f;
+
+        for (int32_t i = 0; i < len; ++i)
+            avg += qual[i];
+
+        avgQual = (int)(avg / len);
+    }
+};
+
+struct FreqRead {
+    BitSet UMI;
+    int freq, origin_pos;
+    FreqRead(const BitSet &umi, int freq, int id) : UMI(umi), freq(freq), origin_pos(id) {
+    }
+};
+
+struct AlignRead {
+    int latest;
+    std::vector<Read> reads;
+};
+
+std::unordered_map<Alignment, AlignRead, AlignmentHasher> align_map;
+std::vector<bool> exist_pos, exist_freq;
+std::vector<FreqRead> freq_vec;
+size_t freq_length;
+
+void RemoveNear(int x) {
+    exist_freq[x] = false;
+    int limit = ceil(freq_vec[x].freq * PERCENTAGE);
+    size_t y = freq_length;
+    while(y) {
+        --y;
+        if (freq_vec[y].freq <= limit)
+            break;
+        if (exist_freq[y] && freq_vec[x].UMI.HammingDist(freq_vec[y].UMI) <= HAMMING_LIM) {
+            exist_freq[y] = false;
+            RemoveNear(y);
+        }
+    }
+}
+
+void DedupFreqVec() {
+    std::sort(freq_vec.begin(), freq_vec.end(), [](const FreqRead &a, const FreqRead &b) {
+        return a.freq > b.freq;
+    });
+
+    freq_length = freq_vec.size();
+    exist_freq.clear();
+    exist_freq.resize(freq_length, true);
+    
+    for (size_t i = 0; i < freq_length; ++i)
+        if (exist_freq[i]) {
+            RemoveNear(i);
+            exist_pos[freq_vec[i].origin_pos] = true;
+        }
+}
+
+
+void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
+    align_map.clear();
+    exist_pos.clear();
+
     bam_hdr_t *header = sam_hdr_read(fp);
     if (header == NULL) {
         fprintf(stderr, "Error: Unable to read header\n");
@@ -211,33 +309,164 @@ void MarkDedup(htsFile *fp, htsFile *out_fp) {
     bam1_t *record = bam_init1();
     if (record == NULL) {
         fprintf(stderr, "Error: Unable to initialize BAM record\n");
+        sam_hdr_destroy(header);
+        hts_close(fp);
+        hts_close(out_fp);
         throw std::runtime_error("Unable to initialize BAM record");
     }
 
+    BGZF *bgzfp = fp->fp.bgzf;
+
+    if (bgzfp == NULL) {
+        fprintf(stderr, "Error: Unable to get BGZF pointer\n");
+        bam_destroy1(record);
+        sam_hdr_destroy(header);
+        hts_close(fp);
+        hts_close(out_fp);
+        throw std::runtime_error("Unable to get BGZF pointer");
+        return;
+    }
+    
+
+    int64_t data_start = bgzf_tell(bgzfp);
+
+    // Begin First Pass
+
     int count_unmapped = 0;
+    int record_length = 0;
+
+    fprintf(stderr, "Start First Pass\n");
 
     while (sam_read1(fp, header, record) >= 0) {
         if (IsUnmapped(record)) {
             ++count_unmapped;
             continue;
         }
-        orgin_record.push_back(bam_dup1(record));
+        align_map[Alignment(record)].latest = record_length++;
     }
 
-    for (size_t i = 0; i < orgin_record.size(); ++i) {
-        Alignment align;
-        align.neg_strand = IsNegativeStrand(orgin_record[i]);
-        align.align_pos = getAlignPos(orgin_record[i]);
-        align.origin_pos = i;
-        align.ref_tid = orgin_record[i]->core.tid;
+    exist_pos.resize(record_length, false);
+
+    fprintf(stderr, "First Pass: %d records, %d unmapped\n", record_length, count_unmapped);
+
+    // End First Pass
+
+    // Reset File Pointer
+
+    if (bgzf_seek(fp->fp.bgzf, data_start, SEEK_SET) < 0) {
+        fprintf(stderr, "Error: Unable to reset file pointer\n");
+        bam_destroy1(record);
+        sam_hdr_destroy(header);
+        hts_close(fp);
+        hts_close(out_fp);
+        throw std::runtime_error("Unable to reset file pointer");
+        return;
     }
 
-    for (size_t i = 0; i < orgin_record.size(); ++i)
-        bam_destroy1(orgin_record[i]);
+    // Begin Second Pass
+
+    int id = 0;
+
+    fprintf(stderr, "Start Second Pass\n");
+
+    while (sam_read1(fp, header, record) >= 0) {
+        if (IsUnmapped(record))
+            continue;
+        std::unordered_map<Alignment, AlignRead, AlignmentHasher>::iterator
+            it = align_map.find(Alignment(record));
+
+        if (it == align_map.end()) {
+            
+            fprintf(stderr, "Error: Alignment not found in map\n");
+            bam_destroy1(record);
+            sam_hdr_destroy(header);
+            hts_close(fp);
+            hts_close(out_fp);
+            throw std::runtime_error("Alignment not found in map");
+        }
+
+        #define r_vec it->second.reads
+
+        r_vec.emplace_back(id, record);
+
+        if (id >= it->second.latest) {
+            std::sort(r_vec.begin(), r_vec.end(), [](const Read &a, const Read &b) {
+                if (a.UMI != b.UMI)
+                    return a.UMI < b.UMI;
+                else
+                    return a.avgQual < b.avgQual;
+            });
+            size_t reads_length = r_vec.size();
+            freq_vec.clear();
+            int freq = 0;
+            for (size_t i = 0; i < reads_length; ++i) {
+                ++freq;
+                if (i == reads_length - 1 || r_vec[i].UMI != r_vec[i + 1].UMI) {
+                        freq_vec.emplace_back(r_vec[i].UMI, freq, r_vec[i].origin_pos);
+                        freq = 0;
+                    }
+            }
+            DedupFreqVec();
+            align_map.erase(it);
+        }
+
+        #undef r_vec
+        
+        ++id;
+    }
+
+    // End Second Pass
+
+    // Reset File Pointer
+
+    if (bgzf_seek(fp->fp.bgzf, data_start, SEEK_SET) < 0) {
+        fprintf(stderr, "Error: Unable to reset file pointer\n");
+        bam_destroy1(record);
+        sam_hdr_destroy(header);
+        hts_close(fp);
+        hts_close(out_fp);
+        throw std::runtime_error("Unable to reset file pointer");
+        return;
+    }
+
+    // Begin Third Pass - Write Pass
+
+    id = 0;
+
+    // Write Header
+
+    if (sam_hdr_write(out_fp, header) < 0) {
+        fprintf(stderr, "Error: Unable to write header\n");
+        bam_destroy1(record);
+        sam_hdr_destroy(header);
+        hts_close(fp);
+        hts_close(out_fp);
+        throw std::runtime_error("Unable to write header");
+    }
+
+    while (sam_read1(fp, header, record) >= 0) {
+        if (IsUnmapped(record))
+            continue;
+        if (exist_pos[id]) {
+            // Write This Record
+            if (sam_write1(out_fp, header, record) < 0) {
+                fprintf(stderr, "Error: Unable to write record\n");
+                bam_destroy1(record);
+                sam_hdr_destroy(header);
+                hts_close(fp);
+                hts_close(out_fp);
+                throw std::runtime_error("Unable to write record");
+            }
+        }
+        ++id;
+    }
+
+    // End Third Pass
+    
     bam_destroy1(record);
     sam_hdr_destroy(header);
-    orgin_record.clear();
-    orgin_record.shrink_to_fit();
+    hts_close(fp);
+    hts_close(out_fp);
 }
 
 int main(int argc, char *argv[]) {
@@ -262,10 +491,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    MarkDedup(fp, out_fp);
-
-    hts_close(fp);
-    hts_close(out_fp);
+    MarkDedupThreePass(fp, out_fp);
 
     // Record End Time
     time_t end_time = time(NULL);

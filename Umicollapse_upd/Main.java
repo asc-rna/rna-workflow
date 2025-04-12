@@ -292,27 +292,8 @@ class Data{
         this.umiFreq = umiFreq;
     }
 
-    public Set<BitSet> removeNear(BitSet umi, int k, int maxFreq){
-        Set<BitSet> res = new HashSet<>();
-
-        for(Iterator<Map.Entry<BitSet, Integer>> it = umiFreq.entrySet().iterator(); it.hasNext();){
-            Map.Entry<BitSet, Integer> e = it.next();
-            BitSet o = e.getKey();
-            int f = e.getValue();
-            int dist = umiDist(umi, o);
-
-            if(dist <= k && (dist == 0 || f <= maxFreq)){
-                res.add(o);
-                it.remove();
-            }
-        }
-        return res;
-        
-    }
-
     public List<BitSet> removeNearImp(BitSet umi, int maxFreq) {
-        List<BitSet> res = new ArrayList<>(1);  // 用 ArrayList 替代 HashSet
-
+        List<BitSet> res = new ArrayList<>(1); 
         Iterator<Map.Entry<BitSet, Integer>> it = umiFreq.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<BitSet, Integer> e = it.next();
@@ -331,11 +312,6 @@ class Data{
 
     public boolean contains(BitSet umi){
         return umiFreq.containsKey(umi);
-    }
-
-    public Map<String, Float> stats(){
-        Map<String, Float> res = new HashMap<>();
-        return res;
     }
 }
 
