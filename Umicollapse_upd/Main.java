@@ -1,5 +1,5 @@
-import htsjdk.samtools.SamReader;
 import htsjdk.samtools.SAMRecord;
+import htsjdk.samtools.SamReader;
 import htsjdk.samtools.ValidationStringency;
 import htsjdk.samtools.SamReaderFactory;
 import htsjdk.samtools.SAMFileWriter;
@@ -116,13 +116,6 @@ class BitSet implements Comparable{
         }
 
         return 0;
-    }
-
-    public BitSet clone(){
-        if(recalcHash)
-            return new BitSet(Arrays.copyOf(bits, bits.length));
-        else
-            return new BitSet(Arrays.copyOf(bits, bits.length), hash);
     }
 
     @Override
@@ -430,7 +423,6 @@ class DeduplicateSAM{
                 continue;
             }
 
-
             Alignment alignment = new Alignment(
                 record.getReadNegativeStrandFlag(),
                 record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
@@ -475,6 +467,9 @@ class DeduplicateSAM{
                     record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
                     record.getReferenceName()
             );
+
+            if(!align.containsKey(alignment))
+                continue;
 
             AlignReads alignReads = align.get(alignment);
 
