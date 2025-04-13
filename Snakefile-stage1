@@ -23,6 +23,7 @@ rule all:
     input:
         f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
 
+        
 # 2. 修剪 FASTQ
 rule cut_fastq:
     input:
@@ -92,6 +93,8 @@ rule sort_bam:
         """
 
 # 7. UMI 去重
+
+
 rule umi_dedup:
     input:
         sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
@@ -99,17 +102,25 @@ rule umi_dedup:
         dedup_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam"),
         log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
     shell:
+        f"""
+        env LD_LIBRARY_PATH=./cpp_umicollapse/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}} \
+            ./cpp_umicollapse/umicollapse \
+                {input.sorted_bam} \
+                {output.dedup_bam} \
+                > {output.log}
         """
-        taskset -c 0-63 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
-            -XX:+UseZGC \
-            -Dthread.pool.size=16 \
-            -Dsamjdk.sort_col_threads=2 \
-            -Dsamjdk.use_async_io_read_samtools=true \
-            -Dsamjdk.compression_level=0 \
-            -jar ./Umicollapse/umicollapse.jar \
-            {input.sorted_bam} {output.dedup_bam} \
-            > {output.log}
-        """
+
+#        """
+#        taskset -c 0-63 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
+#            -XX:+UseZGC \
+#            -Dthread.pool.size=16 \
+#            -Dsamjdk.sort_col_threads=2 \
+#            -Dsamjdk.use_async_io_read_samtools=true \
+#            -Dsamjdk.compression_level=0 \
+#            -jar ./Umicollapse/umicollapse.jar \
+#            {input.sorted_bam} {output.dedup_bam} \
+#            > {output.log}
+#        """
 
 # 8.1：生成 unfiltered_uniq.tsv.gz ==========
 rule unfiltered_uniq:
