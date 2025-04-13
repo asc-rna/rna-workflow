@@ -1,4 +1,4 @@
-ANS_DIR=/mnt/treasure/asc25/jiazhaopeng/rna/results/THU_rlen12000_p16_docker
+ANS_DIR=/mnt/ramdisk/rna/yyyyxh/result
 STD_FILE=/mnt/treasure/asc25/jiazhaopeng/rna/results/GSE225614_HeLa-WT_sites.tsv
 
 

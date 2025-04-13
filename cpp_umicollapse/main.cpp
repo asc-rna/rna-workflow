@@ -391,7 +391,7 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
         r_vec.emplace_back(id, record);
 
         if (id >= it->second.latest) {
-            std::sort(r_vec.begin(), r_vec.end(), [](const Read &a, const Read &b) {
+            std::stable_sort(r_vec.begin(), r_vec.end(), [](const Read &a, const Read &b) {
                 if (a.UMI != b.UMI)
                     return a.UMI < b.UMI;
                 else

@@ -102,13 +102,15 @@ rule umi_dedup:
         dedup_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam"),
         log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
     shell:
-        f"""
-        env LD_LIBRARY_PATH=./cpp_umicollapse/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}} \
-            ./cpp_umicollapse/umicollapse \
-                {input.sorted_bam} \
-                {output.dedup_bam} \
-                > {output.log}
         """
+        env LD_LIBRARY_PATH=./cpp_umicollapse/lib:${{LD_LIBRARY_PATH:-}} \
+            ./cpp_umicollapse/umicollapse \
+            {input.sorted_bam} \
+            {output.dedup_bam} \
+            > {output.log}
+        """
+
+
 
 #        """
 #        taskset -c 0-63 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
