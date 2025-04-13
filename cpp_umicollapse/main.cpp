@@ -240,9 +240,11 @@ struct Read {
 };
 
 struct FreqRead {
+    int freq, origin_pos, jumper;
+    bool exist;
     BitSet UMI;
-    int freq, origin_pos;
-    FreqRead(const BitSet &umi, int freq, int id) : UMI(umi), freq(freq), origin_pos(id) {
+    FreqRead(int freq_val, int id, const BitSet &umi) :
+        freq(freq_val), origin_pos(id), jumper(), exist(true), UMI(umi) {
     }
 };
 
@@ -252,33 +254,30 @@ struct AlignRead {
 };
 
 std::unordered_map<Alignment, AlignRead, AlignmentHasher> align_map;
-std::vector<bool> exist_pos, exist_freq;
-std::vector<int> jumper;
+std::vector<bool> exist_pos;
 std::vector<FreqRead> freq_vec;
-size_t freq_length;
+int freq_length;
+std::vector<int> jump_stack;
 
 int JumpToExist(int x) {
     if (x < 0)
         return -1;
-    if (exist_freq[x])
+    if (freq_vec[x].exist)
         return x;
-    else
-        return jumper[x] = JumpToExist(jumper[x]);
+    return freq_vec[x].jumper = JumpToExist(freq_vec[x].jumper);
 }
 
 void RemoveNear(int x) {
-    exist_freq[x] = false;
-    jumper[x] = x - 1;
+    freq_vec[x].exist = false;
+    freq_vec[x].jumper = x - 1;
     int limit = ceil(freq_vec[x].freq * PERCENTAGE);
-    int y = JumpToExist((int)freq_length - 1);
+    int y = JumpToExist(freq_length - 1);
 
     while (y >= 0) {
         if (freq_vec[y].freq > limit)
             break;
-        if (freq_vec[x].UMI.HammingDist(freq_vec[y].UMI) <= HAMMING_LIM) {
-            exist_freq[y] = false;
+        if (freq_vec[x].UMI.HammingDist(freq_vec[y].UMI) <= HAMMING_LIM)
             RemoveNear(y);
-        }
         y = JumpToExist(y - 1);
     }
 }
@@ -289,15 +288,14 @@ void DedupFreqVec() {
     });
 
     freq_length = freq_vec.size();
-    exist_freq.clear();
-    exist_freq.resize(freq_length, true);
-    jumper.resize(freq_length);
-    std::iota(jumper.begin(), jumper.end(), 0);
-    
-    for (size_t i = 0; i < freq_length; ++i)
-        if (exist_freq[i]) {
-            RemoveNear(i);
+
+    for (int i = 0; i < freq_length; ++i)
+        freq_vec[i].jumper = i;
+
+    for (int i = 0; i < freq_length; ++i)
+        if (freq_vec[i].exist) {
             exist_pos[freq_vec[i].origin_pos] = true;
+            RemoveNear(i);
         }
 }
 
@@ -406,7 +404,7 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
                 ++freq;
                 if (i == reads_length - 1 || r_vec[i].UMI != r_vec[i + 1].UMI) {
                     ++UMIDedup;
-                    freq_vec.emplace_back(r_vec[i].UMI, freq, r_vec[i].origin_pos);
+                    freq_vec.emplace_back(freq, r_vec[i].origin_pos, r_vec[i].UMI);
                     freq = 0;
                 }
             }
@@ -496,7 +494,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    htsFile *out_fp = sam_open(argv[2], "wb");
+    htsFile *out_fp = sam_open(argv[2], "w");
     if (out_fp == NULL) {
         fprintf(stderr, "Error: Unable to open %s\n", argv[2]);
         hts_close(fp);

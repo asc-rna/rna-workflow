@@ -1,1 +1,1 @@
-g++ main.cpp -o umicollapse -I ./include -L ./lib -lhts -lpthread
+g++ main.cpp -o umicollapse -I ./include -L ./lib -lhts -lpthread -O2

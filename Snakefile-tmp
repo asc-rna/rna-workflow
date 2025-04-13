@@ -22,6 +22,7 @@ SAMTOOLS = "./samtools/samtools"
 rule all:
     input:
         f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
+
         
 # 2. 修剪 FASTQ
 rule cut_fastq:
