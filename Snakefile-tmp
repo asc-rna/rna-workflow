@@ -103,7 +103,7 @@ rule umi_dedup:
         log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
     shell:
         """
-        export LD_LIBRARY_PATH=./cpp_umicollapse/lib:$LD_LIBRARY_PATH; 
+        export LD_LIBRARY_PATH=./cpp_umicollapse/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}
         ./cpp_umicollapse/umicollapse \
             {input.sorted_bam} \
             {output.dedup_bam} \
