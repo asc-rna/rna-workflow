@@ -391,11 +391,13 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
         r_vec.emplace_back(id, record);
 
         if (id >= it->second.latest) {
-            std::stable_sort(r_vec.begin(), r_vec.end(), [](const Read &a, const Read &b) {
+            std::sort(r_vec.begin(), r_vec.end(), [](const Read &a, const Read &b) {
                 if (a.UMI != b.UMI)
                     return a.UMI < b.UMI;
-                else
+                else if (a.avgQual != b.avgQual)
                     return a.avgQual < b.avgQual;
+                else
+                    return a.origin_pos < b.origin_pos;
             });
             size_t reads_length = r_vec.size();
             freq_vec.clear();
