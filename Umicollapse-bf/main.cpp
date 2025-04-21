@@ -1,3 +1,15 @@
+/*
+Optimizations:
+1. sort reads of identical Alignment in an (UMI, aveQual, origional_pos) order to merge reads of the same UMI first.
+2. Use struct Read to avoid read input files multiple times.
+3. filter rlen<12000 / rlen<12000&&....(`filtered_bam` step) in this dedup step.
+
+unrealized ideas
+UMI: use unsigned long long? enough?
+IO: drop unused tags? parse aux tags in one pass when creating a Read?
+
+*/
+
 #include <ctime>
 #include <cmath>
 #include <vector>
@@ -10,6 +22,7 @@
 #include <functional>
 #include <unordered_map>
 #include <ctime>
+#include <fstream>
 #include <htslib/sam.h>
 #include <htslib/bgzf.h>
 
@@ -196,6 +209,9 @@ struct Alignment {
     Alignment() : neg_strand(false), align_pos(0), ref_tid(0) {
     }
 
+    Alignment(bool neg_strand_, int32_t align_pos_, int32_t ref_tid_): neg_strand(neg_strand_), align_pos(align_pos_), ref_tid(ref_tid_) {
+    }
+
     Alignment(const bam1_t *record) :
         neg_strand(IsNegativeStrand(record)),
         align_pos(getAlignPos(record)),
@@ -254,6 +270,82 @@ struct AlignRead {
     std::vector<Read> reads;
 };
 
+struct Record {
+    bam1_t *record;
+    Alignment align;
+    int rlen, qlen, sclen;
+    bool unfiltered;  // "[XM] * 20 <= (qlen-sclen) && [Zf] <= 3 && 3 * [Zf] <= [Zf] + [Yf]"
+    Record(bam1_t *rec) {
+        // record = rec;
+        record = bam_dup1(rec);
+        rlen = qlen = sclen = 0;
+        uint32_t *cigar = bam_get_cigar(record);
+        int32_t n_cigar = record->core.n_cigar;
+        for (int i = 0; i < n_cigar; ++i) {
+            int32_t op = bam_cigar_op(cigar[i]);
+            int32_t len = bam_cigar_oplen(cigar[i]);
+            if (op == BAM_CMATCH || op == BAM_CDEL || op == BAM_CREF_SKIP ||
+                op == BAM_CEQUAL || op == BAM_CDIFF) {
+                rlen += len;
+            }
+            if (op == BAM_CMATCH || op == BAM_CINS || op == BAM_CSOFT_CLIP ||
+                op == BAM_CEQUAL || op == BAM_CDIFF) {
+                    qlen += len;
+            }
+            if (op == BAM_CSOFT_CLIP) sclen += len;
+        }
+        unfiltered = true;
+        uint8_t *s;
+        s = bam_aux_get(record, "XM");
+        unfiltered = unfiltered && s;
+        int64_t xm = s ? bam_aux2i(s) : -1;
+        s = bam_aux_get(record, "Zf");
+        unfiltered = unfiltered && s;
+        int64_t zf = s ? bam_aux2i(s) : -1;
+        s = bam_aux_get(record, "Yf");
+        unfiltered = unfiltered && s;
+        int64_t yf = s ? bam_aux2i(s) : -1;
+        unfiltered = unfiltered && xm*20 <= (qlen-sclen) && zf <= 3 && 3*zf <= zf+yf;
+        // uint8_t *s;
+        // for (s = bam_aux_first(record); s; s = bam_aux_next(record, s))
+        //     if (s[-2] == 'X' && s[-1] == 'M') {
+        //         // Check the tag value is valid and complete
+        //         uint8_t *e = skip_aux(s, record->data + record->l_data);
+        //         if (e == NULL) goto bad_aux;
+        //         if ((*s == 'Z' || *s == 'H') && *(e - 1) != '\0') goto bad_aux;
+        //         return s;
+        //     }
+
+        int32_t align_pos = record->core.pos;  // 1-index: "+1"
+        if (IsNegativeStrand(record)) {
+            align_pos += rlen;
+            for (int i = n_cigar - 1; i >= 0; --i) {
+                int32_t op = bam_cigar_op(cigar[i]);
+                int32_t len = bam_cigar_oplen(cigar[i]);
+                if (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP)
+                    align_pos += len;
+                else
+                    break;
+            }
+        }
+        else {
+            for (int i = 0; i < n_cigar; ++i) {
+                int32_t op = bam_cigar_op(cigar[i]);
+                int32_t len = bam_cigar_oplen(cigar[i]);
+                if (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP)
+                    align_pos -= len;
+                else
+                    break;
+            }
+            align_pos++;
+        }
+
+        align = Alignment(IsNegativeStrand(record), align_pos, record->core.tid);
+    }
+};
+
+std::vector<Record> records;
+
 std::unordered_map<Alignment, AlignRead, AlignmentHasher> align_map;
 std::vector<bool> exist_pos;
 std::vector<FreqRead> freq_vec;
@@ -301,7 +393,7 @@ void DedupFreqVec() {
 }
 
 
-void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
+void MarkDedupThreePass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
     clock_t time = clock();
 
     align_map.clear();
@@ -320,6 +412,7 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
         sam_hdr_destroy(header);
         hts_close(fp);
         hts_close(out_fp);
+        hts_close(out_fp2);
         throw std::runtime_error("Unable to initialize BAM record");
     }
 
@@ -331,6 +424,7 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
         sam_hdr_destroy(header);
         hts_close(fp);
         hts_close(out_fp);
+        hts_close(out_fp2);
         throw std::runtime_error("Unable to get BGZF pointer");
         return;
     }
@@ -350,24 +444,14 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
             ++count_unmapped;
             continue;
         }
-        align_map[Alignment(record)].latest = record_length++;
+        Record rec(record);
+        records.push_back(rec);
+        align_map[rec.align].latest = record_length++;
     }
 
     exist_pos.resize(record_length, false);
 
     // End First Pass
-
-    // Reset File Pointer
-
-    if (bgzf_seek(fp->fp.bgzf, data_start, SEEK_SET) < 0) {
-        fprintf(stderr, "Error: Unable to reset file pointer\n");
-        bam_destroy1(record);
-        sam_hdr_destroy(header);
-        hts_close(fp);
-        hts_close(out_fp);
-        throw std::runtime_error("Unable to reset file pointer");
-        return;
-    }
 
     // Begin Second Pass
 
@@ -375,11 +459,10 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
 
     fprintf(stderr, "Start Second Pass, time: %.3f sec\n", 1.0*(clock()-time)/CLOCKS_PER_SEC);
 
-    while (sam_read1(fp, header, record) >= 0) {
-        if (IsUnmapped(record))
-            continue;
+    for (Record rec: records) {
+        #define record rec.record
         std::unordered_map<Alignment, AlignRead, AlignmentHasher>::iterator
-            it = align_map.find(Alignment(record));
+            it = align_map.find(rec.align);
 
         if (it == align_map.end()) {
             fprintf(stderr, "Error: Alignment not found in map\n");
@@ -387,6 +470,7 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
             sam_hdr_destroy(header);
             hts_close(fp);
             hts_close(out_fp);
+            hts_close(out_fp2);
             throw std::runtime_error("Alignment not found in map");
         }
 
@@ -419,25 +503,13 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
         }
 
         #undef r_vec
-        
+        #undef record
         ++id;
     }
 
     // End Second Pass
-
-    // Reset File Pointer
     
     fprintf(stderr, "Start Third Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
-
-    if (bgzf_seek(fp->fp.bgzf, data_start, SEEK_SET) < 0) {
-        fprintf(stderr, "Error: Unable to reset file pointer\n");
-        bam_destroy1(record);
-        sam_hdr_destroy(header);
-        hts_close(fp);
-        hts_close(out_fp);
-        throw std::runtime_error("Unable to reset file pointer");
-        return;
-    }
 
     // Begin Third Pass - Write Pass
 
@@ -451,32 +523,73 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
         sam_hdr_destroy(header);
         hts_close(fp);
         hts_close(out_fp);
+        hts_close(out_fp2);
         throw std::runtime_error("Unable to write header");
     }
     
     int count = 0;
 
-    while (sam_read1(fp, header, record) >= 0) {
+    for (Record rec: records) {
+        #define record rec.record
         if (IsUnmapped(record))
             continue;
         if (exist_pos[id]) {
             ++count;
             // Write This Record
-            if (sam_write1(out_fp, header, record) < 0) {
+            if (rec.rlen < 12000 && sam_write1(out_fp, header, record) < 0) {
                 fprintf(stderr, "Error: Unable to write record\n");
                 bam_destroy1(record);
                 sam_hdr_destroy(header);
                 hts_close(fp);
                 hts_close(out_fp);
+                hts_close(out_fp2);
                 throw std::runtime_error("Unable to write record");
             }
         }
         ++id;
+        #undef record
     }
 
     // End Third Pass
 
-    fprintf(stderr, "End of Third Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
+
+    if (sam_hdr_write(out_fp2, header) < 0) {
+        fprintf(stderr, "Error: Unable to write header\n");
+        bam_destroy1(record);
+        sam_hdr_destroy(header);
+        hts_close(fp);
+        hts_close(out_fp);
+        hts_close(out_fp2);
+        throw std::runtime_error("Unable to write header");
+    }
+
+    fprintf(stderr, "Start Fourth Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
+
+    // Start Fourth Pass
+    id = 0;
+
+    for (Record rec: records) {
+        #define record rec.record
+        if (IsUnmapped(record))
+            continue;
+        if (exist_pos[id]) {
+            ++count;
+            // Write This Record
+            if (rec.unfiltered && rec.rlen < 12000 && sam_write1(out_fp2, header, record) < 0) {
+                fprintf(stderr, "Error: Unable to write record\n");
+                bam_destroy1(record);
+                sam_hdr_destroy(header);
+                hts_close(fp);
+                hts_close(out_fp);
+                hts_close(out_fp2);
+                throw std::runtime_error("Unable to write record");
+            }
+        }
+        ++id;
+        #undef record
+    }
+
+    fprintf(stderr, "End of Fourth Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
 
     printf("Number of removed unmapped reads %d\n", count_unmapped);
     printf("Number of reads after deduplicating %d\n", count);
@@ -485,14 +598,15 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp) {
     sam_hdr_destroy(header);
     hts_close(fp);
     hts_close(out_fp);
+    hts_close(out_fp2);
 }
 
 int main(int argc, char *argv[]) {
     // Record Start Time
     time_t start_time = time(NULL);
 
-    if (argc != 3) {
-        fprintf(stderr, "Usage: %s <input.bam> <output.bam>\n", argv[0]);
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s <input.bam> <output.sam> <output.filtered.sam>\n", argv[0]);
         return 1;
     }
     
@@ -509,7 +623,14 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    MarkDedupThreePass(fp, out_fp);
+    htsFile *out_fp2 = sam_open(argv[3], "w");
+    if (out_fp2 == NULL) {
+        fprintf(stderr, "Error: Unable to open %s\n", argv[3]);
+        hts_close(fp);
+        return 1;
+    }
+
+    MarkDedupThreePass(fp, out_fp, out_fp2);
 
     time_t end_time = time(NULL);
 
