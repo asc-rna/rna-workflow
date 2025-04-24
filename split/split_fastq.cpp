@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     FILE *fp[23];
     for (int i = 0; i < file_num; ++i) {
         char filename[100];
-        sprintf(filename, "%s.%d.fastq", argv[1], i);
+        sprintf(filename, "%s.%d.fastq_cut", argv[1], i);
         fp[i] = fopen(filename, "w");
         if (fp[i] == nullptr) {
             perror("fopen error");
