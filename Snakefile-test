@@ -22,7 +22,7 @@ id_list = [i for i in range(NUM_PROC)]
 # 最终目标
 rule all:
     input:
-        expand(f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.{{id}}.summary", id=id_list)
+        expand(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.{{id}}.bam", id=id_list)
 
 # 1. 修剪 FASTQ
 rule cut_fastq:
@@ -79,11 +79,22 @@ rule align_to_genome:
     input:
         fastq = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.{{id}}.fastq"
     output:
-        mapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.{{id}}.bam",
+        mapped_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.{{id}}.bam"),
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.{{id}}.summary"
     shell:
         """
         {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 16 --summary-file {output.summary} \
         --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
         {SAMTOOLS} view -e '!flag.unmap' -u -o {output.mapped_bam}
+        """
+
+# 6. 排序 BAM
+rule sort_bam:
+    input:
+        mapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.{{id}}.bam"
+    output:
+        sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.{{id}}.bam"
+    shell:
+        """
+        {SAMTOOLS} sort -m 20G -@ 16 --write-index -O BAM,level=0 -o {output.sorted_bam} {input.mapped_bam}
         """
