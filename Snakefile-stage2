@@ -1,4 +1,5 @@
-OUTPUT_DIR = "/data/result"
+# OUTPUT_DIR = "/data/result"
+OUTPUT_DIR = "/mnt/ramdisk/rna/jzp/output"
 FINAL_DIR = OUTPUT_DIR
 # 最终目标
 rule all:
@@ -17,7 +18,7 @@ rule group_pileup:
         wt_arrow = f"{OUTPUT_DIR}/WT.arrow"
     shell:
         """
-        python m5C-UBSseq/bin/group_pileup.py -i {input.genome_arrows} -o {output.wt_arrow}
+        python3 m5C-UBSseq/bin/group_pileup.py -i {input.genome_arrows} -o {output.wt_arrow}
         """
 
 # 规则 2: 根据 WT.arrow 文件生成 prefilter TSV
@@ -28,7 +29,7 @@ rule select_sites:
         prefilter_tsv = f"{OUTPUT_DIR}/WT.prefilter.tsv"
     shell:
         """
-        python m5C-UBSseq/bin/select_sites.py -i {input.wt_arrow} -o {output.prefilter_tsv}
+        python3 m5C-UBSseq/bin/select_sites.py -i {input.wt_arrow} -o {output.prefilter_tsv}
         """
 
 # 规则 3: 根据单个 genome.arrow 和 prefilter TSV 生成结果文件
@@ -41,7 +42,7 @@ rule filter_sites:
         filtered_tsv = f"{FINAL_DIR}/{{sample}}.filtered.tsv"
     shell:
         """
-        python ./m5C-UBSseq/bin/filter_sites.py \
+        python3 ./m5C-UBSseq/bin/filter_sites.py \
             -i {input.genome_arrow} \
             -m {input.prefilter_tsv} \
             -b {output.bg_tsv} \

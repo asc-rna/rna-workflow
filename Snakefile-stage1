@@ -2,15 +2,19 @@
 import os
 
 # 配置路径
-OUTPUT_DIR = "/data/output"
-TEMP_DIR = config.get('temp_dir') or "/tmp"
+# OUTPUT_DIR = "/data/output"
+OUTPUT_DIR = "/mnt/ramdisk/rna/jzp/output"
+# TEMP_DIR = config.get('temp_dir') or "/tmp"
+TEMP_DIR = config.get('temp_dir') or "/mnt/ramdisk/rna/jzp/tmp"
 CASE_ID = config.get('case_id') or "SRR23538290"
 
-INPUT_DIR = "/data/input"
+# INPUT_DIR = "/data/input"
+INPUT_DIR = "/mnt/treasure/asc25/rna/input"
 REF_DIR = INPUT_DIR
 FASTQ_DIR = INPUT_DIR
 
-RESULT_DIR = "/data/result"
+# RESULT_DIR = "/data/result"
+RESULT_DIR = "/mnt/ramdisk/rna/jzp/output"
 
 CUTSEQ = "cutseq"
 HISAT = "./hisat-3n/hisat-3n"
@@ -91,24 +95,37 @@ rule sort_bam:
         {SAMTOOLS} sort -m 20G -@ 16 --write-index -O BAM,level=0 -o {output.sorted_bam} {input.mapped_bam}
         """
 
+# # 7. UMI 去重
+# rule umi_dedup:
+#     input:
+#         sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
+#     output:
+#         dedup_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam"),
+#         log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
+#     shell:
+#         """
+#         taskset -c 0-63 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
+#             -XX:+UseZGC \
+#             -Dthread.pool.size=16 \
+#             -Dsamjdk.sort_col_threads=2 \
+#             -Dsamjdk.use_async_io_read_samtools=true \
+#             -Dsamjdk.compression_level=0 \
+#             -jar ./Umicollapse/umicollapse.jar \
+#             bam --data naive --merge avgqual --algo dir --two-pass \
+#             -i {input.sorted_bam} -o {output.dedup_bam} > {output.log}
+#         """
+
 # 7. UMI 去重
 rule umi_dedup:
     input:
         sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
     output:
         dedup_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam"),
+        dedup_filtered_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam"),
         log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
     shell:
         """
-        taskset -c 0-63 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
-            -XX:+UseZGC \
-            -Dthread.pool.size=16 \
-            -Dsamjdk.sort_col_threads=2 \
-            -Dsamjdk.use_async_io_read_samtools=true \
-            -Dsamjdk.compression_level=0 \
-            -jar ./Umicollapse/umicollapse.jar \
-            bam --data naive --merge avgqual --algo dir --two-pass \
-            -i {input.sorted_bam} -o {output.dedup_bam} > {output.log}
+        ./Umicollapse-bf/umicollapse {input.sorted_bam} {output.dedup_bam} {output.dedup_filtered_bam} > {output.log}
         """
 
 # 8.1：生成 unfiltered_uniq.tsv.gz ==========
@@ -119,11 +136,11 @@ rule unfiltered_uniq:
     output:
         unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv.gz"
     shell:
+        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
         """
-        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
         {HISAT_TABLE} -p 10 -u --alignments - \
             --ref {input.ref_fa} \
-            --output-name /dev/stdout --base-change C,T |
+            --output-name /dev/stdout --base-change C,T < {input.dedup_bam} |
         gzip -c > {output.unfiltered_uniq}
         """
 
@@ -135,30 +152,30 @@ rule unfiltered_multi:
     output:
         unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv.gz"
     shell:
+        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
         """
-        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
         {HISAT_TABLE} -p 10 -m --alignments - \
             --ref {input.ref_fa} \
-            --output-name /dev/stdout --base-change C,T |
+            --output-name /dev/stdout --base-change C,T < {input.dedup_bam} |
         gzip -c > {output.unfiltered_multi}
         """
 
-# 8.3：生成 filtered BAM ==========
-rule filter_bam:
-    """
-    生成 {CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam
-    主要根据 [XM], [Zf], [Yf], qlen, sclen 等 TAG 进行过滤
-    """
-    input:
-        dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
-    output:
-        filtered_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam")
-    shell:
-        """
-        {SAMTOOLS} view -@ 8 \
-            -e "[XM] * 20 <= (qlen-sclen) && [Zf] <= 3 && 3 * [Zf] <= [Zf] + [Yf]" \
-            {input.dedup_bam} -O BAM,level=0 -o {output.filtered_bam}
-        """
+# # 8.3：生成 filtered BAM ==========
+# rule filter_bam:
+#     """
+#     生成 {CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam
+#     主要根据 [XM], [Zf], [Yf], qlen, sclen 等 TAG 进行过滤
+#     """
+#     input:
+#         dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
+#     output:
+#         filtered_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam")
+#     shell:
+#         """
+#         {SAMTOOLS} view -@ 8 \
+#             -e "[XM] * 20 <= (qlen-sclen) && [Zf] <= 3 && 3 * [Zf] <= [Zf] + [Yf]" \
+#             {input.dedup_bam} -O BAM,level=0 -o {output.filtered_bam}
+#         """
 
 # 8.4：生成 filtered_uniq.tsv.gz ==========
 rule filtered_uniq:
@@ -168,11 +185,11 @@ rule filtered_uniq:
     output:
         filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv.gz"
     shell:
+        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
         """
-        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
         {HISAT_TABLE} -p 10 -u --alignments - \
             --ref {input.ref_fa} \
-            --output-name /dev/stdout --base-change C,T |
+            --output-name /dev/stdout --base-change C,T < {input.filtered_bam} |
         gzip -c > {output.filtered_uniq}
         """
 
@@ -184,11 +201,11 @@ rule filtered_multi:
     output:
         filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv.gz"
     shell:
+        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
         """
-        {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
         {HISAT_TABLE} -p 10 -m --alignments - \
             --ref {input.ref_fa} \
-            --output-name /dev/stdout --base-change C,T |
+            --output-name /dev/stdout --base-change C,T < {input.filtered_bam} |
         gzip -c > {output.filtered_multi}
         """
 
