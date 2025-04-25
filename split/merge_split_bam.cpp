@@ -37,7 +37,7 @@ struct InputFile {
     inline void next_record() {
         int ret = sam_read1(fp, header, record);
         chr_pos = MP(INF_, INF_);
-        if (ret != 0) chr_pos = MP(record->core.tid, record->core.pos);
+        if (ret >= 0) chr_pos = MP(record->core.tid, record->core.pos);
     }
     inline void init(const char *name_prefix, int id) {
         char filename[100];
@@ -55,9 +55,9 @@ struct InputFile {
         return header;
     }
     ~InputFile() {
-        hts_close(fp);
-        bam_destroy1(record);
-        sam_hdr_destroy(header);
+        if (fp) hts_close(fp);
+        if (record) bam_destroy1(record);
+        if (header) sam_hdr_destroy(header);
     }
 } input_files[MAX_FILE_NUM];
 
@@ -91,8 +91,7 @@ struct OutputFile {
         }
     }
     ~OutputFile() {
-        hts_close(fp);
-        sam_hdr_destroy(header);
+        if (fp) hts_close(fp);  // should not destroy header here, because it is shared with input files
     }
 } output_files[MAX_FILE_NUM];
 
@@ -116,7 +115,7 @@ int main(int argc, char *argv[]) {
     time_t start_time = time(NULL);
 
     if (argc != 4 || strcmp(argv[1], "-h") == 0) {
-        fprintf(stderr, "Usage: %s <input prefix> <input num> <output prefix> <output num>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <input prefix> <input num> <output num>\n", argv[0]);
         return 1;
     }
 
@@ -131,18 +130,27 @@ int main(int argc, char *argv[]) {
     
     htsFile *out_fp[MAX_FILE_NUM];
     for (int i = 0; i < output_num; ++i) {
-        output_files[i].init(argv[3], i, header);
+        output_files[i].init(argv[1], i, header);
     }
 
+
+    int jzpcnt = 0;
     int cur_in = get_min_input_id();
     int cur_chr = input_files[cur_in].chr_pos.first, lst_chr = cur_chr;
     int cur_out = get_min_output_id();
     while (cur_chr != INF_) {
-        if (lst_chr != cur_chr) cur_out = get_min_output_id();
+        // if ((++jzpcnt) % 1000000 == 0) {
+        //     printf("Processing %d records...\n", jzpcnt);
+        // }
+        if (lst_chr != cur_chr) {
+            cur_out = get_min_output_id();
+            // printf("assigning %d to %d\n", cur_chr, cur_out);
+        }
         output_files[cur_out].wirte_record(input_files[cur_in].record);
         input_files[cur_in].next_record();
-        
+
         cur_in = get_min_input_id();
+        lst_chr = cur_chr;
         cur_chr = input_files[cur_in].chr_pos.first;
     }
 
