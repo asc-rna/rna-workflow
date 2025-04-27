@@ -30,7 +30,18 @@ git clone git@github.com:asc-rna/rna-workflow.git
 cd rna-workflow && git submodule update --init --recursive
 ```
 
-2. Python env creating(Using [miniconda](https://www.anaconda.com/docs/getting-started/miniconda/install) as an example. You can use venv as well)
+2. Python env creating
+
+python venv(recommended)
+
+```sh
+python -m venv venv-rna
+source ~/venv-rna/bin/activate
+pip install --upgrade pip
+pip install cutseq snakemake polars scipy
+```
+
+[miniconda](https://www.anaconda.com/docs/getting-started/miniconda/install)
 
 ```sh
 conda create --name rna
@@ -135,6 +146,24 @@ For our experiment setup, case2 takes the longest time. so we run stage2 on scri
 ```
 
 
+## 静态链接 htslib
+
+（暂时没搞定）
+
+方便起见，我们使用静态链接方法。
+
+```sh
+cd htslib
+autoreconf -i
+export CFLAGS=-flto -O3
+export LDFLAGS=-flto
+./configure --enable-static --disable-shared
+make -j 16
+```
+
+经过（漫长的）等待后，得到一个 `libhts.a` 文件。直接把这个文件扔到仓库里面。
+
+但运行的时候需要各种连接，暂时没搞定这个问题
 
 ---
 

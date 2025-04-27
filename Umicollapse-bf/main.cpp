@@ -610,7 +610,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    htsFile *fp = sam_open(argv[1], "rb");
+    htsFile *fp = sam_open(argv[1], "r");
     if (fp == NULL) {
         fprintf(stderr, "Error: Unable to open %s\n", argv[1]);
         return 1;
