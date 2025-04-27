@@ -7,3 +7,6 @@
 [submodule "htslib"]
 	path = htslib
 	url = git@github.com:samtools/htslib.git
+[submodule "asc-rna-m5C-UBSseq"]
+	path = m5C-UBSseq
+	url = git@github.com:asc-rna/m5C-UBSseq.git
