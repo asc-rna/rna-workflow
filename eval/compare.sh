@@ -1,4 +1,5 @@
-ANS_DIR=/mnt/treasure/asc25/jiazhaopeng/rna/results/THU_rlen100000_original
+# ANS_DIR=/mnt/treasure/asc25/jiazhaopeng/rna/results/THU_rlen100000_original
+ANS_DIR=/mnt/ramdisk/rna/jzp/output
 STD_FILE=/mnt/treasure/asc25/jiazhaopeng/rna/results/THU_rlen12000_p16_test
 
 
