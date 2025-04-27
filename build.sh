@@ -12,6 +12,16 @@ autoreconf -i  # Build the configure script and install files it uses
 make -j 16
 cd ../
 
+# build split
+cd split
+make
+cd ../
+
+# build Umicollapse-bf
+cd Umicollapse-bf
+make
+cd ../
+
 # build samtools
 cd samtools
 autoheader										# Build config.h.in (this may generate a warning about
