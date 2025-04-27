@@ -4,7 +4,7 @@
 
 [submodule "m5C-UBSseq"]
 	path = m5C-UBSseq
-	url = git@github.com:y9c/m5C-UBSseq.git
+	url = git@github.com:asc-rna/m5C-UBSseq.git
 [submodule "samtools"]
 	path = samtools
 	url = git@github.com:samtools/samtools.git
