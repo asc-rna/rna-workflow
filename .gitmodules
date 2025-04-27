@@ -1,10 +1,6 @@
 [submodule "hisat-3n"]
 	path = hisat-3n
 	url = git@github.com:asc-rna/hisat-3n.git
-
-[submodule "m5C-UBSseq"]
-	path = m5C-UBSseq
-	url = git@github.com:asc-rna/m5C-UBSseq.git
 [submodule "samtools"]
 	path = samtools
 	url = git@github.com:samtools/samtools.git
