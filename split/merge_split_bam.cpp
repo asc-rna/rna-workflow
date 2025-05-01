@@ -59,7 +59,7 @@ void init_chr2bid() {
             int id = atoi(s);
             chr2bid[i] = id;
         } else chr2bid[i] = 0;
-        // printf("[JZPDEBUG] chr2bid[%s(%d)] = %d\n", s, i, chr2bid[i]);
+        printf("[JZPDEBUG] chr2bid[%s(%d)] = %d\n", s, i, chr2bid[i]);
     }
 }
 void scan_record() {
@@ -156,20 +156,22 @@ int main(int argc, char *argv[]) {
         1.0*(clock()-start_time)/CLOCKS_PER_SEC);
     fflush(stdout);
 
-    for (int i = 0; i < CHR_NUM; ++i) {
-        // printf("[JZPDEBUG] data[%d].size() = %d\n", i, data[i].size()); fflush(stdout);
-        std::sort(data[i].begin(), data[i].end());
-        h[i] = i;
-    }
+    // for (int i = 0; i < CHR_NUM; ++i) {
+    //     // printf("[JZPDEBUG] data[%d].size() = %d\n", i, data[i].size()); fflush(stdout);
+    //     std::sort(data[i].begin(), data[i].end());
+    //     h[i] = i;
+    // }
 
-    printf("[JZPDEBUG] finished sort each chromosome, time: %.3f sec\n", 
-        1.0*(clock()-start_time)/CLOCKS_PER_SEC);
-    fflush(stdout);
+    // printf("[JZPDEBUG] finished sort each chromosome, time: %.3f sec\n", 
+    //     1.0*(clock()-start_time)/CLOCKS_PER_SEC);
+    // fflush(stdout);
 
     std::sort(data, data+CHR_NUM, [](auto a, auto b) { return a.size() > b.size(); });
     #pragma omp parallel for schedule(dynamic, 1) 
     for (int i = 0; i < CHR_NUM; ++i) {
 	    int id = omp_get_thread_num();
+        printf("[JZPDEBUG] data[%d].size() = %d, chromosome scheduled for process %d\n", i, data[i].size(), id); fflush(stdout);
+        std::sort(data[i].begin(), data[i].end());
 	    for (const auto j: data[i]) {
             // output_files[mnid].wirte_record(data[h[i]][j].record);
             output_files[id].wirte_record(j.record);

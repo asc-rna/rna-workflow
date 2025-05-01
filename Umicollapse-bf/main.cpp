@@ -393,7 +393,7 @@ void DedupFreqVec() {
 }
 
 
-void MarkDedupThreePass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
+void MarkDedupFourPass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
     clock_t time = clock();
 
     align_map.clear();
@@ -416,30 +416,19 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
         throw std::runtime_error("Unable to initialize BAM record");
     }
 
-    BGZF *bgzfp = fp->fp.bgzf;
-
-    if (bgzfp == NULL) {
-        fprintf(stderr, "Error: Unable to get BGZF pointer\n");
-        bam_destroy1(record);
-        sam_hdr_destroy(header);
-        hts_close(fp);
-        hts_close(out_fp);
-        hts_close(out_fp2);
-        throw std::runtime_error("Unable to get BGZF pointer");
-        return;
-    }
-    
-
-    int64_t data_start = bgzf_tell(bgzfp);
-
     // Begin First Pass
 
+    int total_read_count = 0;
     int count_unmapped = 0;
     int record_length = 0;
+    int align_count = 0;
+    int avg_umi_count = 0;
+    int max_umi_count = 0;
 
     fprintf(stderr, "Start First Pass, time: %.3f sec\n", 1.0*(clock()-time)/CLOCKS_PER_SEC);
 
     while (sam_read1(fp, header, record) >= 0) {
+        ++total_read_count;
         if (IsUnmapped(record)) {
             ++count_unmapped;
             continue;
@@ -455,7 +444,7 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
 
     // Begin Second Pass
 
-    int id = 0, UMIDedup = 0;
+    int id = 0;
 
     fprintf(stderr, "Start Second Pass, time: %.3f sec\n", 1.0*(clock()-time)/CLOCKS_PER_SEC);
 
@@ -479,6 +468,7 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
         r_vec.emplace_back(id, record);
 
         if (id >= it->second.latest) {
+            ++align_count;
             std::sort(r_vec.begin(), r_vec.end(), [](const Read &a, const Read &b) {
                 if (a.UMI != b.UMI)
                     return a.UMI < b.UMI;
@@ -490,15 +480,18 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
             size_t reads_length = r_vec.size();
             freq_vec.clear();
             int freq = 0;
+            int umi_count = 0;
             for (size_t i = 0; i < reads_length; ++i) {
                 ++freq;
                 if (i == reads_length - 1 || r_vec[i].UMI != r_vec[i + 1].UMI) {
-                    ++UMIDedup;
+                    ++umi_count;
                     freq_vec.emplace_back(freq, r_vec[i].origin_pos, r_vec[i].UMI);
                     freq = 0;
                 }
             }
             DedupFreqVec();
+            avg_umi_count += umi_count;
+            max_umi_count = std::max(max_umi_count, umi_count);
             align_map.erase(it);
         }
 
@@ -527,14 +520,14 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
         throw std::runtime_error("Unable to write header");
     }
     
-    int count = 0;
+    int deduped_count = 0;
 
     for (Record rec: records) {
         #define record rec.record
         if (IsUnmapped(record))
             continue;
         if (exist_pos[id]) {
-            ++count;
+            ++deduped_count;
             // Write This Record
             if (rec.rlen < 12000 && sam_write1(out_fp, header, record) < 0) {
                 fprintf(stderr, "Error: Unable to write record\n");
@@ -573,7 +566,6 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
         if (IsUnmapped(record))
             continue;
         if (exist_pos[id]) {
-            ++count;
             // Write This Record
             if (rec.unfiltered && rec.rlen < 12000 && sam_write1(out_fp2, header, record) < 0) {
                 fprintf(stderr, "Error: Unable to write record\n");
@@ -591,8 +583,13 @@ void MarkDedupThreePass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
 
     fprintf(stderr, "End of Fourth Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
 
-    printf("Number of removed unmapped reads %d\n", count_unmapped);
-    printf("Number of reads after deduplicating %d\n", count);
+    printf("Number of input reads\t%d\n", total_read_count);
+    printf("Number of removed unmapped reads\t%d\n", count_unmapped);
+    printf("Number of unremoved reads\t%d\n", total_read_count - count_unmapped);
+    printf("Number of unique alignment positionst\t%d\n", align_count);
+    printf("Average number of UMIs per alignment position\t%.10f\n", 1.0 * avg_umi_count / align_count);
+    printf("Max number of UMIs over all alignment positions\t%d\n", max_umi_count);
+    printf("Number of reads after deduplicating\t%d\n", deduped_count);
     
     bam_destroy1(record);
     sam_hdr_destroy(header);
@@ -630,7 +627,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    MarkDedupThreePass(fp, out_fp, out_fp2);
+    MarkDedupFourPass(fp, out_fp, out_fp2);
 
     time_t end_time = time(NULL);
 
