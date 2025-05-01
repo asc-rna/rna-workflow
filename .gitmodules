@@ -12,4 +12,4 @@
 	url = git@github.com:asc-rna/m5C-UBSseq.git
 [submodule "hisat-3n-table"]
 	path = hisat-3n-table
-	url = https://github.com/asc-rna/hisat-3n-table.git
+	url = git@github.com:asc-rna/hisat-3n-table.git
