@@ -100,7 +100,7 @@ struct OutputFile {
     void init(const char *name_prefix, int id, bam_hdr_t* hdr) {
         header = hdr;
         char filename[100];
-        sprintf(filename, "%s.sorted.split.%d.bam", name_prefix, id);  // output file example: xxx.split.0.bam
+        sprintf(filename, "%s.sorted.split.%d.sam", name_prefix, id);  // output file example: xxx.split.0.sam
         fp = sam_open(filename, "w");
         if (fp == NULL) {
             fprintf(stderr, "Error: Unable to open %s\n", filename);
