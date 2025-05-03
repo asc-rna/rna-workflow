@@ -4,11 +4,12 @@ set -x
 
 # build hisat-3n
 make -C hisat-3n -j 16
+make -C hisat-3n-table
 
 # build htslib
 cd htslib
 autoreconf -i  # Build the configure script and install files it uses
-./configure    # Optional but recommended, for choosing extra functionality
+./configure --prefix=$HOME/local    # Optional but recommended, for choosing extra functionality
 make -j 16
 cd ../
 

@@ -2,13 +2,13 @@
 import os
 
 # 配置路径
-OUTPUT_DIR = "/mnt/ramdisk/jzp/output-p4p4"
-RESULT_DIR = OUTPUT_DIR
+OUTPUT_DIR = "/mnt/ramdisk/rna/jzp/output"
+RESULT_DIR = OUTPUT_DIR + "/result"
 TEMP_DIR = config.get('temp_dir') or "/tmp"
 CASE_ID = config.get('case_id') or "SRR23538290"
 
-INPUT_DIR = "/mnt/ramdisk/jzp/fastq"
-REF_DIR = "/mnt/ramdisk/jzp/ref"
+INPUT_DIR = "/mnt/ramdisk/rna/fastq"
+REF_DIR = "/mnt/ramdisk/rna/ref"
 FASTQ_DIR = INPUT_DIR
 
 
@@ -33,10 +33,10 @@ rule cut_fastq:
     input:
         fastq = f"{FASTQ_DIR}/{CASE_ID}.fastq"
     output:
-        cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut"
+        cut = pipe(f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut")
     shell:
         """
-        {CUTSEQ} {input.fastq} -t 40 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
+        {CUTSEQ} {input.fastq} -t 60 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
         -o {output.cut} -O "{OUTPUT_DIR}/{CASE_ID}.fastq"
         """
 
@@ -62,7 +62,7 @@ rule align_to_ncrna:
     shell:
         """
         {HISAT} --index {input.ref_fa_ncrna} --summary-file {output.summary} \
-        --new-summary -q -U {input.fastq_cut} -p 4 --base-change C,T --mp 8,2 --no-spliced-alignment \
+        --new-summary -q -U {input.fastq_cut} -p 12 --base-change C,T --mp 8,2 --no-spliced-alignment \
         --directional-mapping | \
         {SAMTOOLS} view -e 'flag.unmap' -u -o {output.unmapped_bam}
         """
@@ -87,7 +87,7 @@ rule align_to_genome:
         summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.{{id}}.summary"
     shell:
         """
-        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 13 --summary-file {output.summary} \
+        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 15 --summary-file {output.summary} \
         --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
         {SAMTOOLS} view -e '!flag.unmap' -u -o {output.mapped_bam}
         """
@@ -188,7 +188,7 @@ rule merge_unfiltered_uniq_tsv:
     input:
         unfiltered_uniq = expand(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.{{id_chr}}.tsv", id_chr=id_chr_list)
     output:
-        merged_unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv"
+        merged_unfiltered_uniq = temp(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv")
     shell:
         """
         echo -e "ref\tpos\tstrand\tconvertedBaseCount\tunconvertedBaseCount" | cat - {input} > {output.merged_unfiltered_uniq}
@@ -199,7 +199,7 @@ rule merge_unfiltered_multi_tsv:
     input:
         unfiltered_multi = expand(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.{{id_chr}}.tsv", id_chr=id_chr_list)
     output:
-        merged_unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv"
+        merged_unfiltered_multi = temp(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv")
     shell:
         """
         echo -e "ref\tpos\tstrand\tconvertedBaseCount\tunconvertedBaseCount" | cat - {input} > {output.merged_unfiltered_multi}
@@ -210,7 +210,7 @@ rule merge_filtered_uniq_tsv:
     input:
         filtered_uniq = expand(f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.{{id_chr}}.tsv", id_chr=id_chr_list)
     output:
-        merged_filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv"
+        merged_filtered_uniq = temp(f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv")
     shell:
         """
         echo -e "ref\tpos\tstrand\tconvertedBaseCount\tunconvertedBaseCount" | cat - {input} > {output.merged_filtered_uniq}
@@ -221,7 +221,7 @@ rule merge_filtered_multi_tsv:
     input:
         filtered_multi = expand(f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.{{id_chr}}.tsv", id_chr=id_chr_list)
     output:
-        merged_filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv"
+        merged_filtered_multi = temp(f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv")
     shell:
         """
         echo -e "ref\tpos\tstrand\tconvertedBaseCount\tunconvertedBaseCount" | cat - {input} > {output.merged_filtered_multi}
