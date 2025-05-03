@@ -35,60 +35,59 @@ write to output files according to chromosome(SAM)
 struct data_t {
     bam1_t *record;
     int64_t pos;
-    data_t(bam1_t *rec) : record(bam_dup1(rec)), pos(rec->core.pos) {}
+    int32_t tid;
+    data_t(bam1_t *rec) : record(bam_dup1(rec)), pos(rec->core.pos), tid(rec->core.tid) {}
     bool operator<(const data_t &other) const {
-        return pos < other.pos;
+        return tid < other.tid || (tid == other.tid && pos < other.pos);
     }
 };
 
 std::vector<data_t> data[30];
 int output_file_id[30], output_file_size[MAX_FILE_NUM];
-int h[30];
-htsFile *fp;
-bam_hdr_t *header;
-bam1_t *record;
-PII chr_pos;
-int chr2bid[1111];
-void init_chr2bid() {
-    for (int i = 0; i < header->n_targets; ++i) {
-        char *s = header->target_name[i];
-        int slen = strlen(s);
-        if (slen == 1 && s[0] == 'X') chr2bid[i] = 23;
-        else if (slen == 1 && s[0] == 'Y') chr2bid[i] = 24;
-        else if (slen <= 2 && isdigit(s[0])) {
-            int id = atoi(s);
-            chr2bid[i] = id;
-        } else chr2bid[i] = 0;
-        printf("[JZPDEBUG] chr2bid[%s(%d)] = %d\n", s, i, chr2bid[i]);
+namespace InputNameSpace {
+    htsFile *fp;
+    bam_hdr_t *header;
+    bam1_t *record;
+    int chr2bid[1111];
+    void init_chr2bid() {
+        for (int i = 0; i < header->n_targets; ++i) {
+            char *s = header->target_name[i];
+            int slen = strlen(s);
+            if (slen == 1 && s[0] == 'X') chr2bid[i] = 23;
+            else if (slen == 1 && s[0] == 'Y') chr2bid[i] = 24;
+            else if (slen <= 2 && isdigit(s[0])) {
+                int id = atoi(s);
+                chr2bid[i] = id;
+            } else chr2bid[i] = 0;
+            // printf("[JZPDEBUG] chr2bid[%s(%d)] = %d\n", s, i, chr2bid[i]);
+        }
     }
-}
-void scan_record() {
-    // int jzpcnt = 0;
-    while (sam_read1(fp, header, record) >= 0) {
-        data[chr2bid[record->core.tid]].emplace_back(record);
-        // jzpcnt ++;
+    void scan_record() {
+        while (sam_read1(fp, header, record) >= 0) {
+            data[chr2bid[record->core.tid]].emplace_back(record);
+        }
+        // printf("[JZPDEBUG] jzpcnt = %d\n", jzpcnt);
     }
-    // printf("[JZPDEBUG] jzpcnt = %d\n", jzpcnt);
-}
-void closeInputFile() {
-    if (fp) hts_close(fp);
-    if (record) bam_destroy1(record);
-}
-void init(const char *name_prefix, int id) {
-    // printf("--------------------------\n");
-    char filename[100];
-    sprintf(filename, "%s.%d.bam", name_prefix, id);  // input file example: xxx.0.bam
-    fp = sam_open(filename, "rb");
-    if (fp == NULL) {
-        fprintf(stderr, "Error: Unable to open %s\n", filename);
-        exit(-1);
+    void closeInputFile() {
+        if (fp) hts_close(fp);
+        if (record) bam_destroy1(record);
     }
-    if (header) sam_hdr_destroy(header);
-    header = sam_hdr_read(fp);
-    record = bam_init1();
-    init_chr2bid();
-    scan_record();
-    closeInputFile();
+    void init(const char *name_prefix, int id) {
+        // printf("--------------------------\n");
+        char filename[200];
+        sprintf(filename, "%s.%d.bam", name_prefix, id);  // input file example: xxx.0.bam
+        fp = sam_open(filename, "rb");
+        if (fp == NULL) {
+            fprintf(stderr, "Error: Unable to open %s\n", filename);
+            exit(-1);
+        }
+        if (header) sam_hdr_destroy(header);
+        header = sam_hdr_read(fp);
+        record = bam_init1();
+        init_chr2bid();
+        scan_record();
+        closeInputFile();
+    }
 }
 
 int input_num, output_num;
@@ -99,7 +98,7 @@ struct OutputFile {
     int num_rec;
     void init(const char *name_prefix, int id, bam_hdr_t* hdr) {
         header = hdr;
-        char filename[100];
+        char filename[200];
         sprintf(filename, "%s.sorted.split.%d.sam", name_prefix, id);  // output file example: xxx.split.0.sam
         fp = sam_open(filename, "w");
         if (fp == NULL) {
@@ -119,9 +118,6 @@ struct OutputFile {
             exit(-1);
         }
     }
-    ~OutputFile() {
-        if (fp) hts_close(fp);  // should not destroy header here, because it is shared with input files
-    }
 } output_files[MAX_FILE_NUM];
 
 int main(int argc, char *argv[]) {
@@ -137,32 +133,22 @@ int main(int argc, char *argv[]) {
     output_num = atoi(argv[3]);
     
     for (int i = 0; i < input_num; ++i) {
-        init(argv[1], i);
+        InputNameSpace::init(argv[1], i);
         // printf("[JZPDEBUG] finished init %d\n", i);
         fflush(stdout);
     }
 
-    printf("[JZPDEBUG] finished init input files, time: %.3f sec\n", 
-           1.0*(clock()-start_time)/CLOCKS_PER_SEC);
-    fflush(stdout);
+    // printf("[JZPDEBUG] finished init input files, time: %.3f sec\n", 
+    //        1.0*(clock()-start_time)/CLOCKS_PER_SEC);
+    // fflush(stdout);
 
 
     htsFile *out_fp[MAX_FILE_NUM];
     for (int i = 0; i < output_num; ++i) {
-        output_files[i].init(argv[1], i, header);
+        output_files[i].init(argv[1], i, InputNameSpace::header);
     }
 
-    printf("[JZPDEBUG] finished init output files, time: %.3f sec\n", 
-        1.0*(clock()-start_time)/CLOCKS_PER_SEC);
-    fflush(stdout);
-
-    // for (int i = 0; i < CHR_NUM; ++i) {
-    //     // printf("[JZPDEBUG] data[%d].size() = %d\n", i, data[i].size()); fflush(stdout);
-    //     std::sort(data[i].begin(), data[i].end());
-    //     h[i] = i;
-    // }
-
-    // printf("[JZPDEBUG] finished sort each chromosome, time: %.3f sec\n", 
+    // printf("[JZPDEBUG] finished init output files, time: %.3f sec\n", 
     //     1.0*(clock()-start_time)/CLOCKS_PER_SEC);
     // fflush(stdout);
 
@@ -170,15 +156,18 @@ int main(int argc, char *argv[]) {
     #pragma omp parallel for schedule(dynamic, 1) 
     for (int i = 0; i < CHR_NUM; ++i) {
 	    int id = omp_get_thread_num();
-        printf("[JZPDEBUG] data[%d].size() = %d, chromosome scheduled for process %d\n", i, data[i].size(), id); fflush(stdout);
+        // printf("[JZPDEBUG] data[%d].size() = %d, chromosome scheduled for process %d\n", i, data[i].size(), id); fflush(stdout);
         std::sort(data[i].begin(), data[i].end());
 	    for (const auto j: data[i]) {
-            // output_files[mnid].wirte_record(data[h[i]][j].record);
             output_files[id].wirte_record(j.record);
-            // bam_destroy1(j.record);
         }
     }
-    sam_hdr_destroy(header);
+    for (int i = 0; i < output_num; ++i) hts_close(output_files[i].fp);
+    sam_hdr_destroy(InputNameSpace::header);
+    #pragma omp parallel for
+    for (int i = 0; i < CHR_NUM; ++i)
+        for (const auto j: data[i])
+            bam_destroy1(j.record);
 
     printf("BAM splitting finished in %.3f seconds\n", 1.0*(clock()-start_time)/CLOCKS_PER_SEC);
     return 0;
