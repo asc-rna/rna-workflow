@@ -24,7 +24,6 @@ IO: drop unused tags? parse aux tags in one pass when creating a Read?
 #include <ctime>
 #include <fstream>
 #include <htslib/sam.h>
-#include <htslib/bgzf.h>
 
 const size_t HASH_BASE = 329;
 const int CODE_LENGTH = 5;
@@ -425,7 +424,7 @@ void MarkDedupFourPass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
     int avg_umi_count = 0;
     int max_umi_count = 0;
 
-    fprintf(stderr, "Start First Pass, time: %.3f sec\n", 1.0*(clock()-time)/CLOCKS_PER_SEC);
+    // fprintf(stderr, "Start First Pass, time: %.3f sec\n", 1.0*(clock()-time)/CLOCKS_PER_SEC);
 
     while (sam_read1(fp, header, record) >= 0) {
         ++total_read_count;
@@ -446,7 +445,7 @@ void MarkDedupFourPass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
 
     int id = 0;
 
-    fprintf(stderr, "Start Second Pass, time: %.3f sec\n", 1.0*(clock()-time)/CLOCKS_PER_SEC);
+    // fprintf(stderr, "Start Second Pass, time: %.3f sec\n", 1.0*(clock()-time)/CLOCKS_PER_SEC);
 
     for (Record rec: records) {
         #define record rec.record
@@ -502,7 +501,7 @@ void MarkDedupFourPass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
 
     // End Second Pass
     
-    fprintf(stderr, "Start Third Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
+    // fprintf(stderr, "Start Third Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
 
     // Begin Third Pass - Write Pass
 
@@ -556,7 +555,7 @@ void MarkDedupFourPass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
         throw std::runtime_error("Unable to write header");
     }
 
-    fprintf(stderr, "Start Fourth Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
+    // fprintf(stderr, "Start Fourth Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
 
     // Start Fourth Pass
     id = 0;
@@ -581,7 +580,7 @@ void MarkDedupFourPass(htsFile *fp, htsFile *out_fp, htsFile *out_fp2) {
         #undef record
     }
 
-    fprintf(stderr, "End of Fourth Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
+    // fprintf(stderr, "End of Fourth Pass, time: %.3f sec\n",  1.0*(clock()-time)/CLOCKS_PER_SEC);
 
     printf("Number of input reads\t%d\n", total_read_count);
     printf("Number of removed unmapped reads\t%d\n", count_unmapped);
