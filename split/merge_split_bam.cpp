@@ -148,9 +148,8 @@ int main(int argc, char *argv[]) {
         output_files[i].init(argv[1], i, InputNameSpace::header);
     }
 
-    // printf("[JZPDEBUG] finished init output files, time: %.3f sec\n", 
-    //     1.0*(clock()-start_time)/CLOCKS_PER_SEC);
-    // fflush(stdout);
+    printf("[JZPDEBUG] finished init output files, time: %.3f sec\n", 
+        1.0*(clock()-start_time)/CLOCKS_PER_SEC);
 
     std::sort(data, data+CHR_NUM, [](auto a, auto b) { return a.size() > b.size(); });
     #pragma omp parallel for schedule(dynamic, 1) 
@@ -163,11 +162,14 @@ int main(int argc, char *argv[]) {
         }
     }
     for (int i = 0; i < output_num; ++i) hts_close(output_files[i].fp);
+
+    printf("[JZPDEBUG] finished writing output files, time: %.3f sec\n", 
+        1.0*(clock()-start_time)/CLOCKS_PER_SEC);
+
     sam_hdr_destroy(InputNameSpace::header);
-    #pragma omp parallel for
-    for (int i = 0; i < CHR_NUM; ++i)
-        for (const auto j: data[i])
-            bam_destroy1(j.record);
+    // for (int i = 0; i < CHR_NUM; ++i)
+    //     for (const auto j: data[i])
+    //         bam_destroy1(j.record);
 
     printf("BAM splitting finished in %.3f seconds\n", 1.0*(clock()-start_time)/CLOCKS_PER_SEC);
     return 0;

@@ -2,7 +2,7 @@
 import os
 
 # 配置路径
-OUTPUT_DIR = "/mnt/ramdisk/rna/jzp/output"
+OUTPUT_DIR = "/mnt/ramdisk/rna/jzp/output-test"
 RESULT_DIR = OUTPUT_DIR + "/result"
 TEMP_DIR = config.get('temp_dir') or "/tmp"
 CASE_ID = config.get('case_id') or "SRR23538290"
@@ -17,8 +17,9 @@ HISAT = "./hisat-3n/hisat-3n"
 HISAT_TABLE = "./hisat-3n-table/hisat-3n-table"
 SAMTOOLS = "./samtools/samtools"
 
+# LD_IOMP = "/opt/intel/oneapi24/2024.0/lib/libiomp5.so"
 NUM_PROC = 4
-NUM_PROC_CHR = 4
+NUM_PROC_CHR = 12
 id_list = [i for i in range(NUM_PROC)]
 id_chr_list = [i for i in range(NUM_PROC_CHR)]
 
@@ -114,6 +115,9 @@ rule split_bam:
         """
         env OMP_NUM_THREADS={NUM_PROC_CHR} LD_LIBRARY_PATH=$HOME/local/lib ./split/merge_split_bam {OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped {NUM_PROC} {NUM_PROC_CHR}
         """
+        # """
+        # env LD_PRELOAD={LD_IOMP} OMP_NUM_THREADS={NUM_PROC_CHR} KMP_AFFINITY=granularity=fine,compact,1,0 LD_LIBRARY_PATH=$HOME/local/lib ./split/merge_split_bam {OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped {NUM_PROC} {NUM_PROC_CHR}
+        # """
 # env OMP_NUM_THREADS=4 LD_LIBRARY_PATH=$HOME/local/lib ./split/merge_split_bam /mnt/ramdisk/jzp/output2/Small90.mRNA.genome.mapped 4 4
 
 # 7.2 UMI 去重
