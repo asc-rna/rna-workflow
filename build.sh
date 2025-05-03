@@ -11,6 +11,7 @@ cd htslib
 autoreconf -i  # Build the configure script and install files it uses
 ./configure --prefix=$HOME/local    # Optional but recommended, for choosing extra functionality
 make -j 16
+make install
 cd ../
 
 # build split
