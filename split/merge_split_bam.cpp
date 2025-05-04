@@ -24,47 +24,31 @@ write to output files according to chromosome(SAM)
 #include <htslib/bgzf.h>
 #include <omp.h>
 
-#define PII std::pair<int, int>
-#define MP std::make_pair
-
-#define MAX_FILE_NUM 23
+#define MAX_FILE_NUM 37
 #define INF_ 1234567890
 
-#define CHR_NUM 25
+#define CHR_NUM 194
+#define INPUT_PARALLEL_SIZE 4
 
 struct data_t {
     bam1_t *record;
     int64_t pos;
-    int32_t tid;
-    data_t(bam1_t *rec) : record(bam_dup1(rec)), pos(rec->core.pos), tid(rec->core.tid) {}
+    // int32_t tid;
+    // data_t(bam1_t *rec) : record(bam_dup1(rec)), pos(rec->core.pos), tid(rec->core.tid) {}
+    data_t(bam1_t *rec) : record(bam_dup1(rec)), pos(rec->core.pos) {}
     bool operator<(const data_t &other) const {
-        return tid < other.tid || (tid == other.tid && pos < other.pos);
+        return pos < other.pos;
+        // return tid < other.tid || (tid == other.tid && pos < other.pos);
     }
 };
-
-std::vector<data_t> data[30];
-int output_file_id[30], output_file_size[MAX_FILE_NUM];
+std::vector<data_t> data[CHR_NUM+3];
 namespace InputNameSpace {
     htsFile *fp;
     bam_hdr_t *header;
     bam1_t *record;
-    int chr2bid[1111];
-    void init_chr2bid() {
-        for (int i = 0; i < header->n_targets; ++i) {
-            char *s = header->target_name[i];
-            int slen = strlen(s);
-            if (slen == 1 && s[0] == 'X') chr2bid[i] = 23;
-            else if (slen == 1 && s[0] == 'Y') chr2bid[i] = 24;
-            else if (slen <= 2 && isdigit(s[0])) {
-                int id = atoi(s);
-                chr2bid[i] = id;
-            } else chr2bid[i] = 0;
-            // printf("[JZPDEBUG] chr2bid[%s(%d)] = %d\n", s, i, chr2bid[i]);
-        }
-    }
     void scan_record() {
         while (sam_read1(fp, header, record) >= 0) {
-            data[chr2bid[record->core.tid]].emplace_back(record);
+            data[record->core.tid].emplace_back(record);
         }
         // printf("[JZPDEBUG] jzpcnt = %d\n", jzpcnt);
     }
@@ -84,7 +68,6 @@ namespace InputNameSpace {
         if (header) sam_hdr_destroy(header);
         header = sam_hdr_read(fp);
         record = bam_init1();
-        init_chr2bid();
         scan_record();
         closeInputFile();
     }
@@ -135,7 +118,7 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < input_num; ++i) {
         InputNameSpace::init(argv[1], i);
         // printf("[JZPDEBUG] finished init %d\n", i);
-        fflush(stdout);
+        // fflush(stdout);
     }
 
     // printf("[JZPDEBUG] finished init input files, time: %.3f sec\n", 
@@ -148,14 +131,14 @@ int main(int argc, char *argv[]) {
         output_files[i].init(argv[1], i, InputNameSpace::header);
     }
 
-    printf("[JZPDEBUG] finished init output files, time: %.3f sec\n", 
+    fprintf(stderr, "[JZPDEBUG] finished init output files, time: %.3f sec\n", 
         1.0*(clock()-start_time)/CLOCKS_PER_SEC);
 
     std::sort(data, data+CHR_NUM, [](auto a, auto b) { return a.size() > b.size(); });
     #pragma omp parallel for schedule(dynamic, 1) 
     for (int i = 0; i < CHR_NUM; ++i) {
 	    int id = omp_get_thread_num();
-        // printf("[JZPDEBUG] data[%d].size() = %d, chromosome scheduled for process %d\n", i, data[i].size(), id); fflush(stdout);
+        // fprintf(stderr, "[JZPDEBUG] data[%d].size() = %d, chromosome scheduled for process %d\n", i, data[i].size(), id); fflush(stdout);
         std::sort(data[i].begin(), data[i].end());
 	    for (const auto j: data[i]) {
             output_files[id].wirte_record(j.record);
@@ -163,7 +146,7 @@ int main(int argc, char *argv[]) {
     }
     for (int i = 0; i < output_num; ++i) hts_close(output_files[i].fp);
 
-    printf("[JZPDEBUG] finished writing output files, time: %.3f sec\n", 
+    fprintf(stderr, "[JZPDEBUG] finished writing output files, time: %.3f sec\n", 
         1.0*(clock()-start_time)/CLOCKS_PER_SEC);
 
     sam_hdr_destroy(InputNameSpace::header);
@@ -171,6 +154,6 @@ int main(int argc, char *argv[]) {
     //     for (const auto j: data[i])
     //         bam_destroy1(j.record);
 
-    printf("BAM splitting finished in %.3f seconds\n", 1.0*(clock()-start_time)/CLOCKS_PER_SEC);
+    fprintf(stderr, "BAM splitting finished in %.3f seconds\n", 1.0*(clock()-start_time)/CLOCKS_PER_SEC);
     return 0;
 }
