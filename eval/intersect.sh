@@ -19,3 +19,7 @@ awk -F'\t' -v OFS='\t' 'NR==FNR {a[$1,$2,$3]=1; b[$1,$2,$3]=$4; c[$1,$2,$3]=$5; 
 awk -F'\t' -v OFS='\t' 'NR==FNR {a[$1,$2,$3]=1; b[$1,$2,$3]=$4; c[$1,$2,$3]=$5; next} ($1,$2,$3) in a {print $1,$2,$3,$4+b[$1,$2,$3],$5+c[$1,$2,$3]}' temp.tsv "${FILTERED_ANS_FILE2}" > $2
 
 rm ${FILTERED_ANS_FILE0} ${FILTERED_ANS_FILE1} ${FILTERED_ANS_FILE2} temp.tsv
+
+echo "the m5C site count in $1 is:"
+wc -l < $2
+
