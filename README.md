@@ -3,21 +3,21 @@
 ## File structure
 
 ```raw
-src
-├── build.sh            // A script used in Dockerfile
-├── Dockerfile
-├── eval                // Evaluation scripts
+.
+├── eval
 ├── hisat-3n
+├── hisat-3n-table
 ├── htslib
 ├── m5C-UBSseq
-├── README.md
-├── runi1.sh            // "docker run" script for the first case
-├── runi2.sh            // "docker run" script for the second case
-├── runi3.sh            // "docker run" script for the third case
 ├── samtools
-├── Snakefile-stage1    // Snakefile for stage-1
-├── Snakefile-stage2    // Snakefile for stage-2
-└── Umicollapse
+├── split
+├── Umicollapse-bf
+├── build.sh
+├── Makefile
+├── README.md
+├── run.sh
+├── Snakefile-stage1
+└── Snakefile-stage2
 ```
 
 
@@ -86,14 +86,13 @@ FASTQ_DIR = "/mnt/treasure/asc25/rna/fastq"
 RESULT_DIR = "/mnt/treasure/asc25/jiazhaopeng/rna/result"
 ```
 
-Then run `snakemake` for every case:
+Then modify and run the script.
 
 ```sh
-snakemake --snakefile Snakefile-stage1 all --cores 64 --config case_id=SRR23538290
-snakemake --snakefile Snakefile-stage1 all --cores 64 --config case_id=SRR23538291
-snakemake --snakefile Snakefile-stage1 all --cores 64 --config case_id=SRR23538292
-snakemake --snakefile Snakefile-stage2 all --cores 64
+bash run.sh
 ```
+
+It will run in tmux, rna session, of all specified hosts.
 
 You can find the three `.filtered.tsv` file in `RESULT_DIR`.
 

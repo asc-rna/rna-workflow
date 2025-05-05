@@ -2,221 +2,246 @@
 import os
 
 # 配置路径
-# OUTPUT_DIR = "/data/output"
-OUTPUT_DIR = "/mnt/ramdisk/rna/jzp/output"
-# TEMP_DIR = config.get('temp_dir') or "/tmp"
-TEMP_DIR = config.get('temp_dir') or "/mnt/ramdisk/rna/jzp/tmp"
+OUTPUT_DIR = "/mnt/ramdisk/jzp/output"
+RESULT_DIR = OUTPUT_DIR + "/result"
+TEMP_DIR = config.get('temp_dir') or "/tmp"
 CASE_ID = config.get('case_id') or "SRR23538290"
 
-# INPUT_DIR = "/data/input"
-INPUT_DIR = "/mnt/treasure/asc25/rna/input"
-REF_DIR = INPUT_DIR
-FASTQ_DIR = INPUT_DIR
+INPUT_DIR = "/mnt/ramdisk"
+REF_DIR = INPUT_DIR + "/ref"
+FASTQ_DIR = INPUT_DIR + "/fastq"
 
-# RESULT_DIR = "/data/result"
-RESULT_DIR = "/mnt/ramdisk/rna/jzp/output"
 
 CUTSEQ = "cutseq"
 HISAT = "./hisat-3n/hisat-3n"
-HISAT_TABLE = "./hisat-3n/hisat-3n-table"
+HISAT_TABLE = "./hisat-3n-table/hisat-3n-table"
 SAMTOOLS = "./samtools/samtools"
 
+# LD_IOMP = "/opt/intel/oneapi24/2024.0/lib/libiomp5.so"
+NUM_PROC = 8
+NUM_PROC_CHR = 24
+NUM_THREAD_CUTSEQ = 120
+NUM_THREAD_ALIGN_NCRNA = 12
+NUM_THREAD_ALIGN_GENOME = 15
+id_list = [i for i in range(NUM_PROC)]
+id_chr_list = [i for i in range(NUM_PROC_CHR)]
 
 # 最终目标
 rule all:
     input:
+        # expand(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.split.{{id_chr}}.bam", id_chr=id_chr_list)
         f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
 
-# 2. 修剪 FASTQ
+# 1. 修剪 FASTQ
 rule cut_fastq:
     input:
         fastq = f"{FASTQ_DIR}/{CASE_ID}.fastq"
     output:
-        cut = temp(f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut"),
+        cut = pipe(f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut")
     shell:
         """
-        {CUTSEQ} {input.fastq} -t 60 -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
+        {CUTSEQ} {input.fastq} -t {NUM_THREAD_CUTSEQ} -A INLINE -m 20 --trim-polyA --ensure-inline-barcode \
         -o {output.cut} -O "{OUTPUT_DIR}/{CASE_ID}.fastq"
+        """
+
+# 2. split FASTQ_CUT
+rule split_fastq:
+    input:
+        fastq_cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut"
+    output:
+        split_cut = temp(expand(f"{OUTPUT_DIR}/{CASE_ID}.{{id}}.fastq_cut", id=id_list))
+    shell:
+        """
+        ./split/split_fastq {OUTPUT_DIR}/{CASE_ID} {NUM_PROC} < {input.fastq_cut}
         """
 
 # 3. 比对到 ncRNA
 rule align_to_ncrna:
     input:
-        fastq_cut = f"{OUTPUT_DIR}/{CASE_ID}.fastq_cut",
+        fastq_cut = f"{OUTPUT_DIR}/{CASE_ID}.{{id}}.fastq_cut",
         ref_fa_ncrna = f"{REF_DIR}/Homo_sapiens.GRCh38.ncrna.fa",
     output:
-        unmapped_bam = pipe(f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.bam"),
-        summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.summary"
+        unmapped_bam = pipe(f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.{{id}}.bam"),
+        summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.{{id}}.summary"
     shell:
         """
-        numactl --cpunodebind=0 --membind=0 --physcpubind=0-25 \
         {HISAT} --index {input.ref_fa_ncrna} --summary-file {output.summary} \
-        --new-summary -q -U {input.fastq_cut} -p 26 --base-change C,T --mp 8,2 --no-spliced-alignment \
-        --directional-mapping | numactl --cpunodebind=1 --membind=1 --physcpubind=32-47 \
+        --new-summary -q -U {input.fastq_cut} -p {NUM_THREAD_ALIGN_NCRNA} --base-change C,T --mp 8,2 --no-spliced-alignment \
+        --directional-mapping | \
         {SAMTOOLS} view -e 'flag.unmap' -u -o {output.unmapped_bam}
         """
 
 # 4. 从 BAM 转 FASTQ
 rule bam_to_fastq:
     input:
-        unmapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.bam"
+        unmapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.{{id}}.bam"
     output:
-        mRNA_fastq = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.fastq")
+        mRNA_fastq = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.{{id}}.fastq")
     shell:
         """
-        numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 {SAMTOOLS} fastq -O {input.unmapped_bam} > {output.mRNA_fastq}
+        {SAMTOOLS} fastq -O {input.unmapped_bam} > {output.mRNA_fastq}
         """
 
 # 5. 比对到基因组
 rule align_to_genome:
     input:
-        fastq = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.fastq"
+        fastq = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.{{id}}.fastq"
     output:
-        mapped_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.bam"),
-        summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.summary"
+        mapped_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.{{id}}.bam"),
+        summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.{{id}}.summary"
     shell:
         """
-        numactl --cpunodebind=0,1 --membind=0 --physcpubind=0-41 \
-        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p 42 --summary-file {output.summary} \
+        {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p {NUM_THREAD_ALIGN_GENOME} --summary-file {output.summary} \
         --new-summary -q -U {input.fastq} --directional-mapping --base-change C,T --pen-noncansplice 20 --mp 4,1 | \
-        numactl --cpunodebind=1 --membind=1 --physcpubind=48-63 \
         {SAMTOOLS} view -e '!flag.unmap' -u -o {output.mapped_bam}
         """
 
-# 6. 排序 BAM
-rule sort_bam:
-    input:
-        mapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.bam"
-    output:
-        sorted_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam")
-    shell:
-        """
-        numactl --cpunodebind=0 --membind=0 --physcpubind=0-15 \
-        {SAMTOOLS} sort -m 20G -@ 16 --write-index -O BAM,level=0 -o {output.sorted_bam} {input.mapped_bam}
-        """
-
-# # 7. UMI 去重
-# rule umi_dedup:
+# # 6. 排序 BAM
+# rule sort_bam:
 #     input:
-#         sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
+#         mapped_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.{{id}}.bam"
 #     output:
-#         dedup_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam"),
-#         log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
+#         sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.{{id}}.bam"
 #     shell:
 #         """
-#         taskset -c 0-63 java -server -Xms10G -Xmx40G -Xss256K -Djava.io.tmpdir={TEMP_DIR} \
-#             -XX:+UseZGC \
-#             -Dthread.pool.size=16 \
-#             -Dsamjdk.sort_col_threads=2 \
-#             -Dsamjdk.use_async_io_read_samtools=true \
-#             -Dsamjdk.compression_level=0 \
-#             -jar ./Umicollapse/umicollapse.jar \
-#             bam --data naive --merge avgqual --algo dir --two-pass \
-#             -i {input.sorted_bam} -o {output.dedup_bam} > {output.log}
+#         {SAMTOOLS} sort -m 20G -@ 16 --write-index -O BAM,level=0 -o {output.sorted_bam} {input.mapped_bam}
 #         """
 
-# 7. UMI 去重
+# 7.1 split BAM
+rule split_bam:
+    input:
+        mapped_bam = expand(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.{{id}}.bam", id=id_list)
+    output:
+        # split_bam = pipe(expand(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.split.{{id_chr}}.bam", id_chr=id_chr_list))
+        split_sam = pipe(expand(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.split.{{id_chr}}.sam", id_chr=id_chr_list))
+    shell:
+        """
+        env OMP_NUM_THREADS={NUM_PROC_CHR} LD_LIBRARY_PATH=$HOME/local/lib ./split/merge_split_bam {OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped {NUM_PROC} {NUM_PROC_CHR}
+        """
+        # """
+        # env LD_PRELOAD={LD_IOMP} OMP_NUM_THREADS={NUM_PROC_CHR} KMP_AFFINITY=granularity=fine,compact,1,0 LD_LIBRARY_PATH=$HOME/local/lib ./split/merge_split_bam {OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped {NUM_PROC} {NUM_PROC_CHR}
+        # """
+# env OMP_NUM_THREADS=4 LD_LIBRARY_PATH=$HOME/local/lib ./split/merge_split_bam /mnt/ramdisk/jzp/output2/Small90.mRNA.genome.mapped 4 4
+
+# 7.2 UMI 去重
 rule umi_dedup:
     input:
-        sorted_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.bam"
+        sorted_sam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.split.{{id_chr}}.sam"
     output:
-        dedup_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam"),
-        dedup_filtered_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam"),
-        log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
+        dedup_sam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.{{id_chr}}.sam"),
+        dedup_filtered_sam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.{{id_chr}}.sam"),
+        log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.{{id_chr}}.log"
     shell:
         """
-        ./Umicollapse-bf/umicollapse {input.sorted_bam} {output.dedup_bam} {output.dedup_filtered_bam} > {output.log}
+        env LD_LIBRARY_PATH=$HOME/local/lib ./Umicollapse-bf/umicollapse {input.sorted_sam} {output.dedup_sam} {output.dedup_filtered_sam} > {output.log}
         """
 
-# 8.1：生成 unfiltered_uniq.tsv.gz ==========
+
+# 8.1：生成 unfiltered_uniq.tsv ==========
 rule unfiltered_uniq:
     input:
-        dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
+        dedup_sam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.{{id_chr}}.sam",
         ref_fa = f"{REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa",
     output:
-        unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv.gz"
+        unfiltered_uniq = temp(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.{{id_chr}}.tsv")
     shell:
-        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
+        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_sam} |
         """
-        {HISAT_TABLE} -p 10 -u --alignments - \
-            --ref {input.ref_fa} \
-            --output-name /dev/stdout --base-change C,T < {input.dedup_bam} |
-        gzip -c > {output.unfiltered_uniq}
+        {HISAT_TABLE} u {input.ref_fa} < {input.dedup_sam} > {output.unfiltered_uniq}
         """
+# ./hisat-3n/hisat-3n-table -p 10 -u --alignments - --ref /mnt/ramdisk/jzp/ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa --output-name /dev/stdout --base-change C,T < /mnt/ramdisk/jzp/output3/Small90.mRNA.genome.mapped.sorted.dedup.sam > /mnt/ramdisk/jzp/output3/Small90_unfiltered_uniq.tsv
 
-# 8.2：生成 unfiltered_multi.tsv.gz ==========
+# 8.2：生成 unfiltered_multi.tsv ==========
 rule unfiltered_multi:
     input:
-        dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
+        dedup_sam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.{{id_chr}}.sam",
         ref_fa = f"{REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa",
     output:
-        unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv.gz"
+        unfiltered_multi = temp(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.{{id_chr}}.tsv")
     shell:
-        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_bam} |
+        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.dedup_sam} |
         """
-        {HISAT_TABLE} -p 10 -m --alignments - \
-            --ref {input.ref_fa} \
-            --output-name /dev/stdout --base-change C,T < {input.dedup_bam} |
-        gzip -c > {output.unfiltered_multi}
+        {HISAT_TABLE} m {input.ref_fa} < {input.dedup_sam} > {output.unfiltered_multi}
         """
 
-# # 8.3：生成 filtered BAM ==========
-# rule filter_bam:
-#     """
-#     生成 {CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam
-#     主要根据 [XM], [Zf], [Yf], qlen, sclen 等 TAG 进行过滤
-#     """
-#     input:
-#         dedup_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.bam",
-#     output:
-#         filtered_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam")
-#     shell:
-#         """
-#         {SAMTOOLS} view -@ 8 \
-#             -e "[XM] * 20 <= (qlen-sclen) && [Zf] <= 3 && 3 * [Zf] <= [Zf] + [Yf]" \
-#             {input.dedup_bam} -O BAM,level=0 -o {output.filtered_bam}
-#         """
-
-# 8.4：生成 filtered_uniq.tsv.gz ==========
+# 8.4：生成 filtered_uniq.tsv ==========
 rule filtered_uniq:
     input:
-        filtered_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam",
+        filtered_sam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.{{id_chr}}.sam",
         ref_fa = f"{REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa",
     output:
-        filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv.gz"
+        filtered_uniq = temp(f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.{{id_chr}}.tsv")
     shell:
-        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
+        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_sam} |
         """
-        {HISAT_TABLE} -p 10 -u --alignments - \
-            --ref {input.ref_fa} \
-            --output-name /dev/stdout --base-change C,T < {input.filtered_bam} |
-        gzip -c > {output.filtered_uniq}
+        {HISAT_TABLE} u {input.ref_fa} < {input.filtered_sam} > {output.filtered_uniq}
         """
 
-# 8.5：生成 filtered_multi.tsv.gz ==========
+# 8.5：生成 filtered_multi.tsv ==========
 rule filtered_multi:
     input:
-        filtered_bam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.bam",
+        filtered_sam = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.{{id_chr}}.sam",
         ref_fa = f"{REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa",
     output:
-        filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv.gz"
+        filtered_multi = temp(f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.{{id_chr}}.tsv")
     shell:
-        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_bam} |
+        # {SAMTOOLS} view -@ 2 -e "rlen<12000" -h {input.filtered_sam} |
         """
-        {HISAT_TABLE} -p 10 -m --alignments - \
-            --ref {input.ref_fa} \
-            --output-name /dev/stdout --base-change C,T < {input.filtered_bam} |
-        gzip -c > {output.filtered_multi}
+        {HISAT_TABLE} m {input.ref_fa} < {input.filtered_sam} > {output.filtered_multi}
+        """
+
+# 8.6: merge unfiltered uniq tsv
+rule merge_unfiltered_uniq_tsv:
+    input:
+        unfiltered_uniq = expand(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.{{id_chr}}.tsv", id_chr=id_chr_list)
+    output:
+        merged_unfiltered_uniq = temp(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv")
+    shell:
+        """
+        echo -e "ref\tpos\tstrand\tconvertedBaseCount\tunconvertedBaseCount" | cat - {input} > {output.merged_unfiltered_uniq}
+        """
+
+# 8.7: merge unfiltered multi tsv
+rule merge_unfiltered_multi_tsv:
+    input:
+        unfiltered_multi = expand(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.{{id_chr}}.tsv", id_chr=id_chr_list)
+    output:
+        merged_unfiltered_multi = temp(f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv")
+    shell:
+        """
+        echo -e "ref\tpos\tstrand\tconvertedBaseCount\tunconvertedBaseCount" | cat - {input} > {output.merged_unfiltered_multi}
+        """
+
+# 8.8: merge filtered uniq tsv
+rule merge_filtered_uniq_tsv:
+    input:
+        filtered_uniq = expand(f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.{{id_chr}}.tsv", id_chr=id_chr_list)
+    output:
+        merged_filtered_uniq = temp(f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv")
+    shell:
+        """
+        echo -e "ref\tpos\tstrand\tconvertedBaseCount\tunconvertedBaseCount" | cat - {input} > {output.merged_filtered_uniq}
+        """
+
+# 8.9: merge filtered multi tsv
+rule merge_filtered_multi_tsv:
+    input:
+        filtered_multi = expand(f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.{{id_chr}}.tsv", id_chr=id_chr_list)
+    output:
+        merged_filtered_multi = temp(f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv")
+    shell:
+        """
+        echo -e "ref\tpos\tstrand\tconvertedBaseCount\tunconvertedBaseCount" | cat - {input} > {output.merged_filtered_multi}
         """
 
 
 # 9. 合并 TSV 并生成最终输出
 rule join_pileup:
     input:
-        unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv.gz",
-        unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv.gz",
-        filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv.gz",
-        filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv.gz"
+        unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv",
+        unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv",
+        filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv",
+        filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv"
     output:
         arrow = f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
     shell:
