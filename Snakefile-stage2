@@ -1,18 +1,16 @@
 # OUTPUT_DIR = "/data/result"
 OUTPUT_DIR = "/mnt/treasure/asc25/jiazhaopeng/rna/output-p4_p12"
 FINAL_DIR = "/mnt/treasure/asc25/jiazhaopeng/rna/results/THU_rlen12000_p4_p12"
+
+sample_list = ["SRR23538290", "SRR23538291", "SRR23538292"]
 # 最终目标
 rule all:
     input:
-        expand(f"{FINAL_DIR}/{{sample}}.filtered.tsv", sample=["SRR23538290", "SRR23538291", "SRR23538292"])
+        expand(f"{FINAL_DIR}/{{sample}}.filtered.tsv", sample=sample_list)
 
 rule group_and_select_sites:
     input:
-        genome_arrows = [
-            f"{OUTPUT_DIR}/SRR23538290_genome.arrow",
-            f"{OUTPUT_DIR}/SRR23538291_genome.arrow",
-            f"{OUTPUT_DIR}/SRR23538292_genome.arrow"
-        ]
+        genome_arrows = expand(f"{OUTPUT_DIR}/{{sample}}_genome.arrow", sample=sample_list)
     output:
         prefilter_tsv = f"{OUTPUT_DIR}/WT.prefilter.tsv"
     shell:
