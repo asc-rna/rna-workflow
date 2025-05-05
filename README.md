@@ -343,10 +343,17 @@ ncrna: <http://ftp.ensembl.org/pub/release-113/fasta/homo_sapiens/ncrna/Homo_sap
 
 + 下载输入文件
 
+（先进入 sra-tools 的 bin 目录）
+
+获取 sra 文件： `./prefetch <accession> -O <accession-path>`，转换成 fastq 格式：`./fasterq-dump <accession-path> --temp <temp-path> -O <fastq-path> -x`
+
+例子：
+
+```sh
+./prefetch GSM7051153 -O /mnt/treasure2/scc/rna/fastq
+./fasterq-dump /mnt/ramdisk/fastq/SRR23538288/SRR23538288.sra --temp /mnt/ramdisk -O /mnt/ramdisk/fastq -x
 ```
-prefetch <ID>
-fasterq-dump --fasta <ID>
-```
+
 
 输入文件：ascii 字符串，都是 ACGTU 状物，fastq 格式 120+G，这题共有 3 个。
 
