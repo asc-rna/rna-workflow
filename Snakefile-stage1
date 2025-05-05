@@ -3,13 +3,13 @@ import os
 
 # 配置路径
 OUTPUT_DIR = "/mnt/ramdisk/jzp/output"
-RESULT_DIR = OUTPUT_DIR + "/result"
+RESULT_DIR = "/mnt/treasure/asc25/jiazhaopeng/rna/output-p4_p12"
 TEMP_DIR = config.get('temp_dir') or "/tmp"
 CASE_ID = config.get('case_id') or "SRR23538290"
 
 INPUT_DIR = "/mnt/ramdisk"
 REF_DIR = INPUT_DIR + "/ref"
-FASTQ_DIR = INPUT_DIR + "/fastq"
+FASTQ_DIR = "/mnt/treasure/asc25/rna/fastq"
 
 
 CUTSEQ = "cutseq"
@@ -18,9 +18,9 @@ HISAT_TABLE = "./hisat-3n-table/hisat-3n-table"
 SAMTOOLS = "./samtools/samtools"
 
 # LD_IOMP = "/opt/intel/oneapi24/2024.0/lib/libiomp5.so"
-NUM_PROC = 8
-NUM_PROC_CHR = 24
-NUM_THREAD_CUTSEQ = 120
+NUM_PROC = 4
+NUM_PROC_CHR = 12
+NUM_THREAD_CUTSEQ = 60
 NUM_THREAD_ALIGN_NCRNA = 12
 NUM_THREAD_ALIGN_GENOME = 15
 id_list = [i for i in range(NUM_PROC)]
@@ -243,9 +243,11 @@ rule join_pileup:
         filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv",
         filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv"
     output:
-        arrow = f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
+        arrow = f"{RESULT_DIR}/{CASE_ID}_genome.arrow",
+        donefile = f"{RESULT_DIR}/{CASE_ID}_done"
     shell:
         """
         python3 m5C-UBSseq/bin/join_pileup.py -i {input.unfiltered_uniq} {input.unfiltered_multi} \
-        {input.filtered_uniq} {input.filtered_multi} -o {output.arrow}
+        {input.filtered_uniq} {input.filtered_multi} -o {output.arrow} && \
+        echo done >> {output.donefile} \
         """

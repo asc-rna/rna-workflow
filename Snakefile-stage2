@@ -1,6 +1,6 @@
 # OUTPUT_DIR = "/data/result"
-OUTPUT_DIR = "/mnt/ramdisk/jzp/output/result"
-FINAL_DIR = OUTPUT_DIR
+OUTPUT_DIR = "/mnt/treasure/asc25/jiazhaopeng/rna/output-p4_p12"
+FINAL_DIR = "/mnt/treasure/asc25/jiazhaopeng/rna/results/THU_rlen12000_p4_p12"
 # 最终目标
 rule all:
     input:
@@ -25,7 +25,7 @@ rule filter_sites:
         genome_arrow = f"{OUTPUT_DIR}/{{sample}}_genome.arrow",
         prefilter_tsv = f"{OUTPUT_DIR}/WT.prefilter.tsv"
     output:
-        bg_tsv = f"{OUTPUT_DIR}/{{sample}}.bg.tsv",
+        bg_tsv = f"{FINAL_DIR}/{{sample}}.bg.tsv",
         filtered_tsv = f"{FINAL_DIR}/{{sample}}.filtered.tsv"
     shell:
         """
