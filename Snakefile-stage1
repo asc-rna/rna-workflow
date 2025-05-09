@@ -3,7 +3,8 @@ import os
 
 # 配置路径
 OUTPUT_DIR = "/mnt/ramdisk/jzp/output"
-RESULT_DIR = "/mnt/treasure/asc25/jiazhaopeng/rna/output-p4_p12"
+# RESULT_DIR = "/mnt/treasure/asc25/jiazhaopeng/rna/output-p4_p12"
+RESULT_DIR = OUTPUT_DIR
 TEMP_DIR = config.get('temp_dir') or "/tmp"
 CASE_ID = config.get('case_id') or "SRR23538290"
 
@@ -30,7 +31,10 @@ id_chr_list = [i for i in range(NUM_PROC_CHR)]
 rule all:
     input:
         # expand(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.split.{{id_chr}}.bam", id_chr=id_chr_list)
-        f"{RESULT_DIR}/{CASE_ID}_genome.arrow"
+        f"{RESULT_DIR}/{CASE_ID}_genome.arrow",
+        merged_ncrna_summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.summary",
+        merged_genome_summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.summary",
+        merged_dedup_log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
 
 # 1. 修剪 FASTQ
 rule cut_fastq:
@@ -62,7 +66,7 @@ rule align_to_ncrna:
         ref_fa_ncrna = f"{REF_DIR}/Homo_sapiens.GRCh38.ncrna.fa",
     output:
         unmapped_bam = pipe(f"{OUTPUT_DIR}/{CASE_ID}.ncrna.unmapped.{{id}}.bam"),
-        summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.{{id}}.summary"
+        summary = temp(f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.{{id}}.summary")
     shell:
         """
         {HISAT} --index {input.ref_fa_ncrna} --summary-file {output.summary} \
@@ -88,7 +92,7 @@ rule align_to_genome:
         fastq = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.{{id}}.fastq"
     output:
         mapped_bam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.{{id}}.bam"),
-        summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.{{id}}.summary"
+        summary = temp(f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.{{id}}.summary")
     shell:
         """
         {HISAT} --index {REF_DIR}/Homo_sapiens.GRCh38.dna.primary_assembly.fa -p {NUM_THREAD_ALIGN_GENOME} --summary-file {output.summary} \
@@ -130,7 +134,7 @@ rule umi_dedup:
     output:
         dedup_sam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.{{id_chr}}.sam"),
         dedup_filtered_sam = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.filtered.{{id_chr}}.sam"),
-        log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.{{id_chr}}.log"
+        log = temp(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.{{id_chr}}.log")
     shell:
         """
         env LD_LIBRARY_PATH=$HOME/local/lib ./Umicollapse-bf/umicollapse {input.sorted_sam} {output.dedup_sam} {output.dedup_filtered_sam} > {output.log}
@@ -250,4 +254,49 @@ rule join_pileup:
         python3 m5C-UBSseq/bin/join_pileup.py -i {input.unfiltered_uniq} {input.unfiltered_multi} \
         {input.filtered_uniq} {input.filtered_multi} -o {output.arrow} && \
         echo done >> {output.donefile} \
+        """
+
+# 9.2 merge align ncRNA logs
+rule merge_align_ncrna_logs:
+    input:
+        unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv",
+        unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv",
+        filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv",
+        filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv",
+        summary = expand(f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.{{id}}.summary", id=id_list)
+    output:
+        merged_summary = f"{OUTPUT_DIR}/{CASE_ID}_map2ncrna.output.summary"
+    shell:
+        """
+        ./split/merge_align_log {OUTPUT_DIR}/{CASE_ID}_map2ncrna.output {NUM_PROC} > {output.merged_summary}
+        """
+
+# 9.3 merge align genome logs
+rule merge_align_genome_logs:
+    input:
+        unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv",
+        unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv",
+        filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv",
+        filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv",
+        summary = expand(f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.{{id}}.summary", id=id_list)
+    output:
+        merged_summary = f"{OUTPUT_DIR}/{CASE_ID}_map2genome.output.summary"
+    shell:
+        """
+        ./split/merge_align_log {OUTPUT_DIR}/{CASE_ID}_map2genome.output {NUM_PROC} > {output.merged_summary}
+        """
+
+# 9.4 merge dedup logs
+rule merge_dedup_logs:
+    input:
+        unfiltered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_uniq.tsv",
+        unfiltered_multi = f"{OUTPUT_DIR}/{CASE_ID}_unfiltered_multi.tsv",
+        filtered_uniq = f"{OUTPUT_DIR}/{CASE_ID}_filtered_uniq.tsv",
+        filtered_multi = f"{OUTPUT_DIR}/{CASE_ID}_filtered_multi.tsv",
+        log = expand(f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.{{id_chr}}.log", id_chr=id_chr_list)
+    output:
+        merged_log = f"{OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup.log"
+    shell:
+        """
+        ./split/merge_dedup_log {OUTPUT_DIR}/{CASE_ID}.mRNA.genome.mapped.sorted.dedup {NUM_PROC_CHR} > {output.merged_log}
         """
